@@ -362,6 +362,8 @@ export default function App() {
     setTimeout(() => document.getElementById(id)?.scrollIntoView({ behavior: 'smooth', block: 'start' }), 60)
   }
 
+  // A task is closed if you ticked it, or the chat shows it was finished ("done", "sent ✅"…)
+  const isClosed = (s: Scored) => done.has(s.msg.id) || s.resolution?.kind === 'done'
   const toggleDone = (id: number) => setDone(d => { const n = new Set(d); if (n.has(id)) n.delete(id); else n.add(id); return n })
   const loadDemo = () => open({ name: DEMO_NAME, messages: parseChat(buildDemoChat()), source: 'demo' }, DEMO_ME, DEMO_LAST_READ)
   function closeIntro() {
@@ -376,7 +378,7 @@ export default function App() {
     return () => window.removeEventListener('keydown', onKey)
   }, [showIntro])
   const loaded = !!a
-  const openTasks = a ? a.actions.filter(s => s.owner === myName && !done.has(s.msg.id)).length : 0
+  const openTasks = a ? a.actions.filter(s => s.owner === myName && !isClosed(s)).length : 0
 
   function saveWho() {
     const v = whoDraft.split(',').map(x => x.trim()).filter(Boolean).join(', ')
@@ -572,7 +574,7 @@ export default function App() {
   const cal = deadlineCalendar(a)
   const topics = hotTopics(a, people)
   const noisePct = a.unread.length ? fyi.length / a.unread.length : 0
-  const doneCount = myTodos.filter(s => done.has(s.msg.id)).length
+  const doneCount = myTodos.filter(isClosed).length
   const modelName = MODELS.find(m => m.id === modelId)?.label.split(' (')[0]
 
   const DAY = 86400000
@@ -599,7 +601,7 @@ export default function App() {
     .map(g => ({ g, items: myTodos.filter(s => groupOf(s) === g) }))
     .filter(x => x.items.length)
   const todoGroups = todoGroupsAll
-  const topTaskId = todoGroups.flatMap(x => x.items).find(s => !done.has(s.msg.id))?.msg.id
+  const topTaskId = todoGroups.flatMap(x => x.items).find(s => !isClosed(s))?.msg.id
 
   const kpis = [
     { label: 'Mentions you', value: a.stats.mentions, unit: 'mentions', footL: 'Asked you a question', footR: String(questions), target: 'inbox' },
@@ -643,7 +645,7 @@ export default function App() {
             const p = prioOf(s)
             return (
               <Fragment key={s.msg.id}>
-              <div className={`todo-row ${done.has(s.msg.id) ? 'is-done' : ''} ${s.msg.id === topTaskId ? 'top' : ''}`}>
+              <div className={`todo-row ${isClosed(s) ? 'is-done' : ''} ${s.msg.id === topTaskId ? 'top' : ''}`}>
                 <button className="tick" onClick={() => toggleDone(s.msg.id)} aria-label="Mark done" />
                 <span className="t-text" title={s.msg.text} onClick={() => jump(s.msg.id)}>
                   <span className="t-title">{cleanTitle(s.msg.text, people)}</span>
@@ -673,7 +675,8 @@ export default function App() {
   )
 
   const statusOf = (s: Scored) => {
-    if (done.has(s.msg.id)) return { cls: 'done', label: 'done' }
+    if (isClosed(s)) return { cls: 'done', label: s.resolution?.kind === 'done' && !done.has(s.msg.id) ? `done by ${s.resolution.by.split(/\s+/)[0]}` : 'done' }
+    if (s.resolution?.kind === 'claimed') return { cls: 'claimed', label: `${s.resolution.by.split(/\s+/)[0]} is on it` }
     if (!s.deadline) return { cls: 'prog', label: 'open' }
     const ms = s.deadline.getTime() - a.now.getTime()
     return { cls: ms < 86400000 ? 'late' : 'prog', label: fmtWhen(s.deadline, a.now).split(' · ')[1] }
@@ -821,7 +824,7 @@ export default function App() {
                       {cal.chips.map(({ s, col, top }) => (
                         <button
                           key={s.msg.id}
-                          className={`event ${s.owner === myName ? 'mine' : ''} ${done.has(s.msg.id) ? 'done' : ''}`}
+                          className={`event ${s.owner === myName ? 'mine' : ''} ${isClosed(s) ? 'done' : ''}`}
                           style={{ left: `calc(${Math.min(col, cal.days.length - 2) * (100 / cal.days.length)}% + 4px)`, top: `${top}%` }}
                           onClick={() => jump(s.msg.id)}
                           title={s.msg.text}

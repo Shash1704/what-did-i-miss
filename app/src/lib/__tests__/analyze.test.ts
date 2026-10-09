@@ -43,3 +43,32 @@ describe('analyze', () => {
     expect(due).toEqual([...due].sort((x, y) => x - y))
   })
 })
+
+describe('follow-ups', () => {
+  const thread = [
+    '09/10/2026, 09:00 - Shashwat: brb',
+    '09/10/2026, 10:00 - Rohan: Who is handling the judges lunch? Need a name by tonight',
+    '09/10/2026, 10:02 - Meera: not me',
+    '09/10/2026, 10:03 - Arjun: ok fine I will take it',
+    '09/10/2026, 10:10 - Priya: decided fee is 200. Please update the form',
+    '09/10/2026, 10:12 - Sneha: yes mine, will update tonight',
+    '09/10/2026, 11:30 - Sneha: Registration form is updated to 200 ✅',
+    '09/10/2026, 11:40 - Ananya: Karthik can you pay the DJ advance by Thursday?',
+    '09/10/2026, 11:45 - Meera: lol',
+  ].join('\n')
+  const m = parseChat(thread)
+  const r = analyze(m, 'Shashwat', 1, participants(m))
+  const find = (needle: string) => r.scored.find(s => s.msg.text.includes(needle))!
+
+  it('assigns an unassigned ask to whoever claims it', () => {
+    expect(find('judges lunch').owner).toBe('Arjun')
+    expect(find('judges lunch').resolution?.kind).toBe('claimed')
+  })
+  it('marks a task done when the claimer reports completion', () => {
+    const s = find('update the form')
+    expect([s.owner, s.resolution?.kind]).toEqual(['Sneha', 'done'])
+  })
+  it('leaves tasks open when nobody follows up', () => {
+    expect(find('DJ advance').resolution).toBeUndefined()
+  })
+})
