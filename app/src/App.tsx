@@ -6,7 +6,8 @@ import { useAssistant } from './hooks/useAssistant'
 import { useInstallPrompt, useOnline } from './hooks/useBrowser'
 import { useChatSession, type OpenableChat } from './hooks/useChatSession'
 import { useTelegramLive } from './hooks/useTelegramLive'
-import { readChatFile, takeSharedChat } from './services/importFile'
+import { importChat } from './engine'
+import { takeSharedChat } from './services/importFile'
 import { storage } from './services/storage'
 import { Sidebar } from './components/layout/Sidebar'
 import { Topbar } from './components/layout/Topbar'
@@ -69,7 +70,10 @@ export default function App() {
   async function openFiles(files: File[]) {
     if (!files.length) return
     try {
-      const chats = await Promise.all(files.map(f => readChatFile(f, f.name)))
+      const results = await Promise.all(files.map(f => importChat(f, f.name)))
+      const failed = results.find(r => !r.ok)
+      if (failed && !failed.ok) throw failed.error
+      const chats = results.flatMap(r => (r.ok ? [r.value] : []))
       const chat = chats.length === 1 ? chats[0] : { ...chats[0], messages: mergeMessages(chats.map(c => c.messages)), me: chats.find(c => c.me)?.me }
       openChat(chat)
     } catch (err) {

@@ -4,7 +4,7 @@
 
 [![Test and deploy](https://github.com/Shash1704/what-did-i-miss/actions/workflows/deploy.yml/badge.svg)](https://github.com/Shash1704/what-did-i-miss/actions/workflows/deploy.yml)
 
-**Live app:** https://shash1704.github.io/what-did-i-miss/ · **Architecture:** [`ARCHITECTURE.md`](ARCHITECTURE.md) · **Security:** [`SECURITY.md`](SECURITY.md) · **Accuracy:** [`ACCURACY.md`](ACCURACY.md) · **Master prompt:** [`MASTER_PROMPT.md`](MASTER_PROMPT.md)
+**Live app:** https://shash1704.github.io/what-did-i-miss/ · **Architecture:** [`ARCHITECTURE.md`](ARCHITECTURE.md) · **Engine API:** [`ENGINE_API.md`](ENGINE_API.md) · **Security:** [`SECURITY.md`](SECURITY.md) · **Accuracy:** [`ACCURACY.md`](ACCURACY.md) · **Master prompt:** [`MASTER_PROMPT.md`](MASTER_PROMPT.md)
 
 > Built for the PALS challenge **"The Unread Problem: What Did I Miss?"**: *build a simple AI micro-app that helps users quickly understand and prioritize important information from overwhelming chat conversations.*
 
@@ -15,7 +15,7 @@
 - **Every requirement in the brief is covered:** summaries, important messages, decisions, action items, urgency and relevance ranking, mentions, deadlines and tasks. See the [mapping table](#how-we-meet-the-challenge) below, with links to the code.
 - **Local-first is enforced, not just promised.** There's no server, no cloud AI API, no API keys and no `.env`. The AI model runs **in the browser on your own GPU**, and a **Content Security Policy** makes the browser itself refuse to send data anywhere except the model download.
 - **It works with real chats today:** WhatsApp (Android share menu, `.txt`, iPhone `.zip`), Telegram Desktop exports (JSON or HTML), **live Telegram through your own bot**, or any pasted chat.
-- **Engineered like a product:** a layered architecture (pure `core/` logic, `services/`, `hooks/`, `components/`), TypeScript strict, lint, **44 tests** (unit, accuracy harness, performance budget) and a dependency audit, all gating every deploy in CI. See [`ARCHITECTURE.md`](ARCHITECTURE.md).
+- **Engineered like a product:** a layered architecture (pure `core/` logic, `services/`, `hooks/`, `components/`), TypeScript strict, lint, **48 tests** (unit, accuracy harness, performance budget) and a dependency audit, all gating every deploy in CI. See [`ARCHITECTURE.md`](ARCHITECTURE.md).
 - **It opens straight into a working demo:** no setup, no sign-up, nothing to install.
 
 ---
@@ -76,7 +76,7 @@ Every major decision traces back to the brief. This section explains the reasoni
 
 ### 9. Accuracy is measured, not assumed
 **Why:** "prioritize important information" is only useful if it's right.
-**How:** 44 automated tests, including an **accuracy harness** over hand-labelled chats (an English held-out chat with deliberate traps, and a Hinglish chat). **Before tuning**, on chats it had never seen, the engine scored **96%** and **79%** macro-F1 with **100% precision** (no false alarms). The gaps it revealed (implicit deadlines, Hinglish) are now fixed. Full numbers and caveats are in [`ACCURACY.md`](ACCURACY.md). CI runs everything before each deploy.
+**How:** 48 automated tests, including an **accuracy harness** over hand-labelled chats (an English held-out chat with deliberate traps, and a Hinglish chat). **Before tuning**, on chats it had never seen, the engine scored **96%** and **79%** macro-F1 with **100% precision** (no false alarms). The gaps it revealed (implicit deadlines, Hinglish) are now fixed. Full numbers and caveats are in [`ACCURACY.md`](ACCURACY.md). CI runs everything before each deploy.
 
 ### 10. Smooth on ordinary laptops
 **Why:** a demo that freezes looks broken. The LLM runs in a **Web Worker**; we measured **0 ms of UI blocking** during a full summary. The model is selectable (Qwen 2.5 1.5B / Llama 3.2 1B / 3B) to suit weaker GPUs.
@@ -137,7 +137,7 @@ Every major decision traces back to the brief. This section explains the reasoni
 | Import | Custom parsers; browser `DecompressionStream` for `.zip`; `DOMParser` for Telegram HTML | No upload, no extra dependencies |
 | App platform | Service worker, Web App Manifest, Web Share Target | Offline, installable, WhatsApp share on Android |
 | Privacy | Content Security Policy | The browser enforces "no data leaves" |
-| Quality | TypeScript strict, oxlint, Vitest (44 tests: unit, accuracy, performance), npm audit, GitHub Actions gate | Measured accuracy, no broken deploys |
+| Quality | TypeScript strict, oxlint, Vitest (48 tests: unit, accuracy, performance), npm audit, GitHub Actions gate | Measured accuracy, no broken deploys |
 | Hosting | GitHub Pages (static) | No server exists to receive data |
 
 ## Project structure
@@ -147,6 +147,7 @@ A layered, local-first architecture. The full write-up, with decision records, i
 ```
 app/src/
   App.tsx                 Composition root (~200 lines): wires hooks to views
+  engine/                 Versioned engine API: validated requests, typed Result<T>, error codes (ENGINE_API.md)
   core/                   Pure domain logic: no React, no I/O, fully unit-tested
     parser.ts             WhatsApp parser + date-order detection
     telegramExport.ts     Telegram Desktop JSON/HTML import

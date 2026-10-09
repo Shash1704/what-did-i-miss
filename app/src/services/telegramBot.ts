@@ -62,22 +62,32 @@ async function call<T>(token: string, method: string, params: Record<string, str
 export async function connectBot(pasted: string): Promise<TgStore> {
   const token = extractToken(pasted)
   if (!token) throw new Error("That doesn't look like a bot token. In @BotFather's message, copy the line that looks like 123456789:AAH… (numbers, a colon, then about 35 letters).")
-  const me = await call<{ username: string }>(token, 'getMe')
-  const hook = await call<{ url: string }>(token, 'getWebhookInfo')
+  const me = await call<unknown>(token, 'getMe')
+  if (!isObject(me) || typeof me.username !== 'string') throw new Error('Telegram returned an unexpected response. Is this a bot token?')
+  const hook = await call<unknown>(token, 'getWebhookInfo')
+  if (!isObject(hook)) throw new Error('Telegram returned an unexpected response.')
   if (hook.url) throw new Error('This bot has a webhook set, so its messages go elsewhere. Use a fresh bot from @BotFather.')
   const prev = loadStore()
   return prev && prev.token === token ? prev : { token, bot: me.username, offset: 0, chats: {} }
 }
 
+// Responses from the network are untrusted: check their shape before use
+const isObject = (v: unknown): v is Record<string, unknown> => typeof v === 'object' && v !== null
+const isUpdate = (u: unknown): u is TgUpdate =>
+  isObject(u) && typeof u.update_id === 'number' &&
+  (u.message === undefined || (isObject(u.message) && typeof u.message.date === 'number' && isObject(u.message.chat)))
+
 const fullName = (u?: TgUser) => [u?.first_name, u?.last_name].filter(Boolean).join(' ') || (u?.username ? `@${u.username}` : '')
 
 /** Long-poll once (up to ~25s). Returns ids of chats that received messages. */
 export async function pollOnce(store: TgStore, signal: AbortSignal): Promise<string[]> {
-  const updates = await call<TgUpdate[]>(store.token, 'getUpdates', {
+  const raw = await call<unknown>(store.token, 'getUpdates', {
     offset: String(store.offset),
     timeout: '25',
     allowed_updates: JSON.stringify(['message', 'channel_post']),
   }, signal)
+  if (!Array.isArray(raw)) throw new Error('Telegram returned an unexpected response.')
+  const updates = raw.filter(isUpdate)
   const changed = new Set<string>()
   for (const u of updates) {
     store.offset = u.update_id + 1

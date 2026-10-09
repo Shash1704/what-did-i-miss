@@ -13,9 +13,10 @@ const LINES = [
   'Karthik please pay the advance by Thursday', 'urgent!! the venue changed', 'nice', 'kal tak slides bhej dena', 'done ✅',
 ]
 
+const pad = (x: number) => String(x).padStart(2, '0')
+
 function bigChat(n: number): string {
   const start = new Date(2026, 9, 1, 8, 0).getTime()
-  const pad = (x: number) => String(x).padStart(2, '0')
   return Array.from({ length: n }, (_, i) => {
     const d = new Date(start + i * 45_000)
     return `${pad(d.getDate())}/${pad(d.getMonth() + 1)}/${d.getFullYear()}, ${pad(d.getHours())}:${pad(d.getMinutes())} - ${PEOPLE[i % PEOPLE.length]}: ${LINES[(i * 7) % LINES.length]}`

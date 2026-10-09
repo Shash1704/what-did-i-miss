@@ -1,8 +1,8 @@
 import { useCallback, useMemo, useState } from 'react'
-import { analyze } from '../core/analyze'
 import { buildBriefing } from '../core/briefing'
 import { displayName, isMe, nameSuggestions } from '../core/identity'
-import { parseChat, participants, type Message } from '../core/parser'
+import { parseChat, type Message } from '../core/parser'
+import { analyzeChat } from '../engine'
 import { buildDemoChat, DEMO_LAST_READ, DEMO_ME, DEMO_NAME } from '../data/demo'
 import type { ChatSource } from '../services/importFile'
 import { storage } from '../services/storage'
@@ -35,8 +35,10 @@ export function useChatSession() {
   const [ticked, setTicked] = useState<ReadonlySet<number>>(() => new Set())
 
   const isDemo = source === 'demo'
-  const people = useMemo(() => participants(msgs), [msgs])
-  const analysis = useMemo(() => (msgs.length ? analyze(msgs, identity, sinceIdx, people) : null), [msgs, identity, sinceIdx, people])
+  // All analysis goes through the engine API (validated input, typed result)
+  const result = useMemo(() => analyzeChat({ messages: msgs, identity, readFrom: sinceIdx }), [msgs, identity, sinceIdx])
+  const analysis = result.ok ? result.value.analysis : null
+  const people = useMemo(() => (result.ok ? result.value.people : []), [result])
   const myName = displayName(identity)
   const briefing = useMemo(() => (analysis ? buildBriefing(analysis, identity, myName, ticked) : null), [analysis, identity, myName, ticked])
   const suggestions = useMemo(() => nameSuggestions(people, msgs.map(m => m.text)), [people, msgs])

@@ -17,6 +17,9 @@
 │   useTelegramLive bot connection · long-polling · live updates               │
 │   useBrowser      online status · install prompt                             │
 ├────────────────────────────────────────────────────────────────────────────┤
+│ engine/  Versioned API (v1.0.0): importChat · analyzeChat                    │
+│   validates input · returns Result<T> · stable error codes (ENGINE_API.md)   │
+├────────────────────────────────────────────────────────────────────────────┤
 │ core/  Pure domain logic (no React, no I/O, fully unit-tested)               │
 │   parser · telegramExport · analyze · identity · briefing · insights ·       │
 │   calendar · merge · format                                                  │
@@ -30,7 +33,7 @@
 └────────────────────────────────────────────────────────────────────────────┘
 ```
 
-**Dependency rule:** arrows only point downward. `core/` imports nothing outside `core/`. `services/` may use `core/` types. `hooks/` combine `core/` and `services/`. `components/` render hook state and never touch storage or the network directly. `App.tsx` is the composition root, about 200 lines of wiring. The linter enforces "no import cycles".
+**Dependency rule:** arrows only point downward. The UI reaches the domain only through the **engine API** ([`ENGINE_API.md`](ENGINE_API.md)), a versioned contract with validated input and typed errors, so the engine could move into a worker or a different runtime without touching the UI. `core/` imports nothing outside `core/`. `services/` may use `core/` types. `hooks/` combine `core/` and `services/`. `components/` render hook state and never touch storage or the network directly. `App.tsx` is the composition root, about 200 lines of wiring. The linter enforces "no import cycles".
 
 ## 2. Data flow
 
@@ -88,6 +91,6 @@
 
 ## 6. Quality gates (CI)
 
-Every push runs **type-check (TypeScript strict) → lint (oxlint: correctness, suspicious, perf, React hooks, no import cycles) → 44 tests (unit, accuracy harness, performance budget) → dependency audit**. Only then does the build and deploy run. A failure anywhere blocks the deploy.
+Every push runs **type-check (TypeScript strict) → lint (oxlint: correctness, suspicious, perf, React hooks, no import cycles) → 48 tests (unit, accuracy harness, performance budget) → dependency audit**. Only then does the build and deploy run. A failure anywhere blocks the deploy.
 
 See [`SECURITY.md`](SECURITY.md) for the threat model and [`ACCURACY.md`](ACCURACY.md) for detection accuracy.
