@@ -1,6 +1,6 @@
 import { useMemo, useState } from 'react'
-import type { Message } from '../lib/parser'
-import type { Scored } from '../lib/analyze'
+import type { Message } from '../../core/parser'
+import type { Scored } from '../../core/analyze'
 
 const W = 1000, H = 230, PAD_L = 44, PAD_R = 16, PAD_T = 34, PAD_B = 30
 
@@ -41,7 +41,7 @@ export default function ActivityChart({ msgs, scored, sinceIdx, onPick }: Props)
     const span = Math.max(t1 - t0, 60000)
     const binMs = Math.max(5 * 60000, Math.ceil(span / 28 / 60000) * 60000)
     const nBins = Math.max(2, Math.ceil(span / binMs) + 1)
-    const bins = new Array(nBins).fill(0)
+    const bins: number[] = Array.from({ length: nBins }, () => 0)
     domainMsgs.forEach(m => bins[Math.min(nBins - 1, Math.floor((m.ts.getTime() - t0) / binMs))]++)
     const max = Math.max(...bins, 1)
     const x = (t: number) => PAD_L + ((t - t0) / (binMs * (nBins - 1))) * (W - PAD_L - PAD_R)
@@ -103,7 +103,7 @@ export default function ActivityChart({ msgs, scored, sinceIdx, onPick }: Props)
           <path d={area} fill="url(#act-fill)" />
           <path d={line} className="act-line" />
           {ticks.map((t, i) => (
-            <text key={i} x={x(t)} y={H - 8} className="act-label" textAnchor={i === 0 ? 'start' : i === ticks.length - 1 ? 'end' : 'middle'}>{fmtTime(new Date(t))}</text>
+            <text key={t} x={x(t)} y={H - 8} className="act-label" textAnchor={i === 0 ? 'start' : i === ticks.length - 1 ? 'end' : 'middle'}>{fmtTime(new Date(t))}</text>
           ))}
           {urgent.map(s => {
             const cx = x(s.msg.ts.getTime()), cy = y(valueAt(s.msg.ts.getTime()))

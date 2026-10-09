@@ -130,7 +130,7 @@ export function fmtWhen(d: Date, now: Date): string {
   return `${day} ${time} · ${diff >= 0 ? `in ${rel}` : `${rel} ago`}`
 }
 
-/** `identity` is free text: "Shashwat, Shash, 9198…" (see lib/identity.ts). */
+/** `identity` is free text: "Shashwat, Shash, 9198…" (see core/identity.ts). */
 export function analyze(all: Message[], identity: string, sinceIdx: number, people: string[]): Analysis {
   const now = all.length ? all[all.length - 1].ts : new Date()
   const unread = all.slice(sinceIdx)
@@ -200,9 +200,9 @@ export function analyze(all: Message[], identity: string, sinceIdx: number, peop
   const has = (s: Scored, k: Flag['kind']) => s.flags.some(f => f.kind === k)
   const mentions = scored.filter(s => has(s, 'mention'))
   const actions = scored.filter(s => has(s, 'action') && s.score >= 3)
-    .sort((a, b) => (b.owner === me ? 1 : 0) - (a.owner === me ? 1 : 0) || b.score - a.score)
+    .toSorted((a, b) => (b.owner === me ? 1 : 0) - (a.owner === me ? 1 : 0) || b.score - a.score)
   const decisions = scored.filter(s => has(s, 'decision') && s.score >= 3)
-  const deadlines = scored.filter(s => s.deadline).sort((a, b) => a.deadline!.getTime() - b.deadline!.getTime())
+  const deadlines = scored.filter(s => s.deadline).toSorted((a, b) => a.deadline!.getTime() - b.deadline!.getTime())
 
   const words = unread.reduce((n, m) => n + m.text.split(/\s+/).length, 0)
   return {

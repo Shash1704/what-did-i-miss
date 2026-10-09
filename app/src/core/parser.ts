@@ -94,11 +94,11 @@ export function parseChat(raw: string): Message[] {
     out.forEach((msg, i) => (msg.ts = new Date(now - (out.length - i) * 120000)))
   }
 
-  return out.filter(msg => !SYSTEM.test(msg.text)).map((msg, i) => ({ ...msg, id: i }))
+  return out.filter(msg => !SYSTEM.test(msg.text)).map((msg, i) => Object.assign(msg, { id: i }))
 }
 
 export function participants(msgs: Message[]): string[] {
   const counts = new Map<string, number>()
   msgs.forEach(m => counts.set(m.author, (counts.get(m.author) || 0) + 1))
-  return [...counts.entries()].sort((a, b) => b[1] - a[1]).map(([n]) => n)
+  return [...counts.entries()].toSorted((a, b) => b[1] - a[1]).map(([n]) => n)
 }

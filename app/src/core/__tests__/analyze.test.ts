@@ -40,7 +40,7 @@ describe('analyze', () => {
 
   it('orders deadlines soonest first', () => {
     const due = a.deadlines.map(s => s.deadline!.getTime())
-    expect(due).toEqual([...due].sort((x, y) => x - y))
+    expect(due).toEqual(due.toSorted((x, y) => x - y))
   })
 })
 

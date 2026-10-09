@@ -4,9 +4,9 @@
  * was written separately with different phrasing and deliberate traps, so its numbers are the honest ones.
  */
 import { describe, expect, it } from 'vitest'
-import { analyze } from '../lib/analyze'
-import { displayName } from '../lib/identity'
-import { parseChat, participants } from '../lib/parser'
+import { analyze } from '../core/analyze'
+import { displayName } from '../core/identity'
+import { parseChat, participants } from '../core/parser'
 import { buildDemoChat, DEMO_LAST_READ, DEMO_ME } from '../data/demo'
 
 type Kind = 'mentions' | 'myTasks' | 'decisions' | 'deadlines'

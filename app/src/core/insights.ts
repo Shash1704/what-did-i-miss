@@ -28,7 +28,7 @@ export function hotTopics(a: Analysis, people: string[], n = 4): Topic[] {
       counts.set(w, (counts.get(w) ?? 0) + 1 + s.score / 4)
     }
   }
-  return [...counts.entries()].sort((x, y) => y[1] - x[1]).slice(0, n).map(([word, weight]) => ({ word, weight }))
+  return [...counts.entries()].toSorted((x, y) => y[1] - x[1]).slice(0, n).map(([word, weight]) => ({ word, weight }))
 }
 
 /** Strip greetings / leading mentions so a message reads well as a short title. */
@@ -65,7 +65,7 @@ export function deadlineCalendar(a: Analysis, nDays = 6): Calendar {
       const top = ((d.getHours() + d.getMinutes() / 60 - startH) / span) * 100
       return { s, col, top }
     })
-    .sort((x, y) => x.col - y.col || x.top - y.top)
+    .toSorted((x, y) => x.col - y.col || x.top - y.top)
 
   // Nudge overlapping chips in the same column
   const MIN_GAP = 22

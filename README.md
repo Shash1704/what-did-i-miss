@@ -4,7 +4,7 @@
 
 [![Test and deploy](https://github.com/Shash1704/what-did-i-miss/actions/workflows/deploy.yml/badge.svg)](https://github.com/Shash1704/what-did-i-miss/actions/workflows/deploy.yml)
 
-**Live app:** https://shash1704.github.io/what-did-i-miss/ · **Accuracy report:** [`ACCURACY.md`](ACCURACY.md) · **Master prompt:** [`MASTER_PROMPT.md`](MASTER_PROMPT.md)
+**Live app:** https://shash1704.github.io/what-did-i-miss/ · **Architecture:** [`ARCHITECTURE.md`](ARCHITECTURE.md) · **Security:** [`SECURITY.md`](SECURITY.md) · **Accuracy:** [`ACCURACY.md`](ACCURACY.md) · **Master prompt:** [`MASTER_PROMPT.md`](MASTER_PROMPT.md)
 
 > Built for the PALS challenge **"The Unread Problem: What Did I Miss?"**: *build a simple AI micro-app that helps users quickly understand and prioritize important information from overwhelming chat conversations.*
 
@@ -15,7 +15,7 @@
 - **Every requirement in the brief is covered:** summaries, important messages, decisions, action items, urgency and relevance ranking, mentions, deadlines and tasks. See the [mapping table](#how-we-meet-the-challenge) below, with links to the code.
 - **Local-first is enforced, not just promised.** There's no server, no cloud AI API, no API keys and no `.env`. The AI model runs **in the browser on your own GPU**, and a **Content Security Policy** makes the browser itself refuse to send data anywhere except the model download.
 - **It works with real chats today:** WhatsApp (Android share menu, `.txt`, iPhone `.zip`), Telegram Desktop exports (JSON or HTML), **live Telegram through your own bot**, or any pasted chat.
-- **The accuracy is measured:** 28 automated tests plus an accuracy harness on hand-labelled chats, run in CI. A failing test blocks deployment.
+- **Engineered like a product:** a layered architecture (pure `core/` logic, `services/`, `hooks/`, `components/`), TypeScript strict, lint, **44 tests** (unit, accuracy harness, performance budget) and a dependency audit, all gating every deploy in CI. See [`ARCHITECTURE.md`](ARCHITECTURE.md).
 - **It opens straight into a working demo:** no setup, no sign-up, nothing to install.
 
 ---
@@ -26,10 +26,10 @@ The brief listed five things a solution "can focus on". We built all five.
 
 | Challenge asks for | What we built | Where to see it | Code |
 |---|---|---|---|
-| **Summarizing long and unread conversations** | A 2–3 sentence **AI catch-up** written by an on-device LLM, grounded on the messages the rule engine flagged so a small model stays accurate. What counts as unread defaults to everything after **your own last message**, adjustable with the **"Last read"** slider (Insights → deadline calendar). | Briefing → *AI catch-up* | [`llm.ts`](app/src/lib/llm.ts), [`llm.worker.ts`](app/src/lib/llm.worker.ts) |
-| **Identifying important messages, decisions and action items** | The rule engine flags **decisions** ("let's go with…", "final:", "pakka"), **action items** ("can you…", "please send…", "bhej dena") and **who owns each task**, even people who never posted. It also reads the **follow-ups**: "Who's handling lunch?" → "I'll take it" becomes *Arjun is on it*, and "Registration form updated ✅" marks a task *done*. | Briefing → *Needs you*, *Decided while you were away*; Insights → *Others' tasks* | [`analyze.ts`](app/src/lib/analyze.ts) |
-| **Prioritizing by urgency and relevance** | Every message is scored and ranked **Urgent / Relevant / FYI**, and your tasks get **High / Medium / Low** priority grouped **Today / Tomorrow / Upcoming**. Each item shows *why* it was ranked ("mentions you", "due Fri 5 PM"). | Briefing → *Needs you*; Insights → *Priority inbox* | [`analyze.ts`](app/src/lib/analyze.ts) |
-| **Highlighting mentions, deadlines and tasks you may have missed** | **Mentions** match your name, nicknames, `@username` or phone number. **Deadlines** turn "by tomorrow 3pm" or "kal subah 9 baje tak" into real dates on a **deadline calendar**. A **"Next up"** card shows the most urgent item, and every item **jumps to the original message**. | Briefing → *Next up*; Insights → *Deadline calendar*, *Chat activity* | [`identity.ts`](app/src/lib/identity.ts), [`analyze.ts`](app/src/lib/analyze.ts) |
+| **Summarizing long and unread conversations** | A 2–3 sentence **AI catch-up** written by an on-device LLM, grounded on the messages the rule engine flagged so a small model stays accurate. What counts as unread defaults to everything after **your own last message**, adjustable with the **"Last read"** slider (Insights → deadline calendar). | Briefing → *AI catch-up* | [`llm.ts`](app/src/services/llm.ts), [`llm.worker.ts`](app/src/workers/llm.worker.ts) |
+| **Identifying important messages, decisions and action items** | The rule engine flags **decisions** ("let's go with…", "final:", "pakka"), **action items** ("can you…", "please send…", "bhej dena") and **who owns each task**, even people who never posted. It also reads the **follow-ups**: "Who's handling lunch?" → "I'll take it" becomes *Arjun is on it*, and "Registration form updated ✅" marks a task *done*. | Briefing → *Needs you*, *Decided while you were away*; Insights → *Others' tasks* | [`analyze.ts`](app/src/core/analyze.ts) |
+| **Prioritizing by urgency and relevance** | Every message is scored and ranked **Urgent / Relevant / FYI**, and your tasks get **High / Medium / Low** priority grouped **Today / Tomorrow / Upcoming**. Each item shows *why* it was ranked ("mentions you", "due Fri 5 PM"). | Briefing → *Needs you*; Insights → *Priority inbox* | [`analyze.ts`](app/src/core/analyze.ts) |
+| **Highlighting mentions, deadlines and tasks you may have missed** | **Mentions** match your name, nicknames, `@username` or phone number. **Deadlines** turn "by tomorrow 3pm" or "kal subah 9 baje tak" into real dates on a **deadline calendar**. A **"Next up"** card shows the most urgent item, and every item **jumps to the original message**. | Briefing → *Next up*; Insights → *Deadline calendar*, *Chat activity* | [`identity.ts`](app/src/core/identity.ts), [`analyze.ts`](app/src/core/analyze.ts) |
 | **Local-first: conversations, data and summaries never leave the device** | No backend, no cloud AI, no API keys. The LLM runs in-browser on WebGPU; parsing and scoring run in-browser. The network is **locked by a Content Security Policy**, and the app works **offline** after the first load. | Shield icon (sidebar); *On-device · 0 bytes sent* pill | [`vite.config.ts`](app/vite.config.ts), [`sw.js`](app/public/sw.js) |
 
 ---
@@ -76,7 +76,7 @@ Every major decision traces back to the brief. This section explains the reasoni
 
 ### 9. Accuracy is measured, not assumed
 **Why:** "prioritize important information" is only useful if it's right.
-**How:** 28 unit tests plus an **accuracy harness** over hand-labelled chats (an English held-out chat with deliberate traps, and a Hinglish chat). **Before tuning**, on chats it had never seen, the engine scored **96%** and **79%** macro-F1 with **100% precision** (no false alarms). The gaps it revealed (implicit deadlines, Hinglish) are now fixed. Full numbers and caveats are in [`ACCURACY.md`](ACCURACY.md). CI runs everything before each deploy.
+**How:** 44 automated tests, including an **accuracy harness** over hand-labelled chats (an English held-out chat with deliberate traps, and a Hinglish chat). **Before tuning**, on chats it had never seen, the engine scored **96%** and **79%** macro-F1 with **100% precision** (no false alarms). The gaps it revealed (implicit deadlines, Hinglish) are now fixed. Full numbers and caveats are in [`ACCURACY.md`](ACCURACY.md). CI runs everything before each deploy.
 
 ### 10. Smooth on ordinary laptops
 **Why:** a demo that freezes looks broken. The LLM runs in a **Web Worker**; we measured **0 ms of UI blocking** during a full summary. The model is selectable (Qwen 2.5 1.5B / Llama 3.2 1B / 3B) to suit weaker GPUs.
@@ -137,25 +137,33 @@ Every major decision traces back to the brief. This section explains the reasoni
 | Import | Custom parsers; browser `DecompressionStream` for `.zip`; `DOMParser` for Telegram HTML | No upload, no extra dependencies |
 | App platform | Service worker, Web App Manifest, Web Share Target | Offline, installable, WhatsApp share on Android |
 | Privacy | Content Security Policy | The browser enforces "no data leaves" |
-| Quality | Vitest (28 tests) + accuracy harness, GitHub Actions gate | Measured accuracy, no broken deploys |
+| Quality | TypeScript strict, oxlint, Vitest (44 tests: unit, accuracy, performance), npm audit, GitHub Actions gate | Measured accuracy, no broken deploys |
 | Hosting | GitHub Pages (static) | No server exists to receive data |
 
 ## Project structure
 
+A layered, local-first architecture. The full write-up, with decision records, is in [`ARCHITECTURE.md`](ARCHITECTURE.md).
+
 ```
 app/src/
-  App.tsx                 Briefing / Insights / Chat views
-  components/ActivityChart.tsx
-  lib/parser.ts           WhatsApp parser + date-order detection
-  lib/telegram.ts         Telegram Desktop JSON/HTML import
-  lib/telegramBot.ts      Live Telegram via the user's own bot (Bot API, browser-direct)
-  lib/importFile.ts       File detection, .zip, WhatsApp share-target hand-off
-  lib/analyze.ts          Rule engine: mentions, deadlines, decisions, tasks, urgency, Hinglish
-  lib/identity.ts         "Who are you?" (names, @usernames, phone numbers)
-  lib/insights.ts         Topics, calendar layout
-  lib/llm.ts, llm.worker.ts  On-device LLM (WebLLM in a Web Worker)
-  lib/__tests__/          Unit tests
-  eval/accuracy.test.ts   Accuracy harness on labelled chats
+  App.tsx                 Composition root (~200 lines): wires hooks to views
+  core/                   Pure domain logic: no React, no I/O, fully unit-tested
+    parser.ts             WhatsApp parser + date-order detection
+    telegramExport.ts     Telegram Desktop JSON/HTML import
+    analyze.ts            Rule engine: mentions, deadlines, decisions, tasks, follow-ups, urgency, Hinglish
+    briefing.ts           View-model: tasks by day/priority, next deadline, KPIs, statuses
+    identity.ts           "Who are you?" (names, @usernames, phone numbers)
+    insights.ts · calendar.ts · merge.ts · format.ts
+  services/               Side effects behind small interfaces
+    storage.ts            The only persistence layer (this browser only, fail-safe)
+    importFile.ts         Files, .zip, WhatsApp share-target hand-off, size limits
+    llm.ts                On-device LLM (WebLLM): model selection, grounded prompts
+    telegramBot.ts        Live Telegram via the user's own bot (Bot API, browser-direct)
+    download.ts
+  workers/llm.worker.ts   WebLLM on WebGPU, off the main thread
+  hooks/                  useChatSession · useAssistant · useTelegramLive · useBrowser
+  components/             layout/ · views/ (Briefing, Insights*, Chat*) · overlays/ · ui/   (*lazy-loaded)
+  eval/                   Accuracy harness + performance budget
 app/public/sw.js          Offline cache + share-target receiver
 app/vite.config.ts        Build config + Content Security Policy
 ```
@@ -168,8 +176,9 @@ Requires **Node 20.19+ or 22.12+**. For the AI summary, use a WebGPU browser (de
 cd app
 npm install
 npm run dev        # http://localhost:5173
-npm test           # unit tests + accuracy harness
-npm run eval       # print the accuracy tables
+npm run check      # type-check (strict) + lint + all tests
+npm run eval       # print the accuracy tables and performance timings
+npm run audit      # dependency audit (production)
 ```
 
 ## Honest limitations

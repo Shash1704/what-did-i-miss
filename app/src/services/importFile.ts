@@ -2,8 +2,8 @@
 //   WhatsApp .txt / .zip (iOS puts "_chat.txt" inside a zip), Telegram Desktop result.json / messages.html.
 // Zip extraction uses the browser's built-in DecompressionStream, so no dependency and no upload.
 
-import { parseChat, type Message } from './parser'
-import { looksLikeTelegramHtml, looksLikeTelegramJson, parseTelegramHtml, parseTelegramJson } from './telegram'
+import { parseChat, type Message } from '../core/parser'
+import { looksLikeTelegramHtml, looksLikeTelegramJson, parseTelegramHtml, parseTelegramJson } from '../core/telegramExport'
 
 export type ChatSource = 'whatsapp' | 'telegram' | 'telegram-live' | 'text'
 export interface LoadedChat { name: string; messages: Message[]; source: ChatSource; me?: string }
@@ -59,7 +59,11 @@ export function chatNameFromFile(filename: string): string {
     .trim() || 'WhatsApp chat'
 }
 
+/** Chat exports are text; anything bigger than this is almost certainly the wrong file. */
+export const MAX_FILE_BYTES = 50 * 1024 * 1024
+
 export async function readChatFile(file: Blob, filename: string): Promise<LoadedChat> {
+  if (file.size > MAX_FILE_BYTES) throw new Error(`"${filename}" is ${Math.round(file.size / 1048576)} MB. Chat exports are usually under 10 MB: export "Without media" and try again.`)
   const buf = await file.arrayBuffer()
   const head = new Uint8Array(buf, 0, Math.min(4, buf.byteLength))
   const isZip = head[0] === 0x50 && head[1] === 0x4b && head[2] === 0x03 && head[3] === 0x04

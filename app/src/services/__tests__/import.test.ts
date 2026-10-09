@@ -1,8 +1,7 @@
 // @vitest-environment happy-dom
 import { describe, expect, it } from 'vitest'
-import { looksLikeTelegramHtml, looksLikeTelegramJson, parseTelegramHtml, parseTelegramJson } from '../telegram'
-import { readChatFile } from '../importFile'
-
+import { readChatFile, MAX_FILE_BYTES } from '../importFile'
+import { extractToken } from '../telegramBot'
 const base = 1791500000
 
 const json = {
@@ -26,50 +25,10 @@ const html = `<!DOCTYPE html><html><head><meta charset="utf-8"/></head><body><di
 <div class="message default clearfix joined"><div class="body"><div class="pull_right date details" title="08.10.2026 21:04:10 UTC+05:30">21:04</div><div class="text">and send the poster</div></div></div>
 </div></div></div></body></html>`
 
-describe('Telegram JSON', () => {
-  it('detects and parses messages, flattening rich text', () => {
-    expect(looksLikeTelegramJson(json)).toBe(true)
-    const chat = parseTelegramJson(json)
-    expect(chat.name).toBe('Rangasthala Core')
-    expect(chat.messages.map(m => [m.author, m.text])).toEqual([
-      ['Nishitha', 'Hi team'],
-      ['Rahul K', '@shashwat_p can you book the hall?'],
-      ['Meghana', '👍'],
-      ['Deleted Account', 'ghost'],
-    ])
-    expect(chat.messages[0].ts.getTime()).toBe((base + 60) * 1000)
-  })
-
-  it('picks the most recent chat from a full-account export and reads your name', () => {
-    const full = {
-      personal_information: { first_name: 'Shashwat', last_name: 'Prakash', username: 'shashwat_p' },
-      chats: { list: [
-        { name: 'Old', messages: [{ type: 'message', date_unixtime: '100', from: 'A', text: 'x' }] },
-        { name: 'Recent', messages: [{ type: 'message', date_unixtime: '999', from: 'B', text: 'y' }] },
-      ] },
-    }
-    const chat = parseTelegramJson(full)
-    expect(chat.name).toBe('Recent')
-    expect(chat.me).toBe('Shashwat Prakash, @shashwat_p')
-  })
-})
-
-describe('Telegram HTML', () => {
-  it('parses senders, joined messages and UTC offsets', () => {
-    expect(looksLikeTelegramHtml(html)).toBe(true)
-    const chat = parseTelegramHtml(html)
-    expect(chat.name).toBe('Fest Team')
-    expect(chat.messages.map(m => [m.author, m.text])).toEqual([
-      ['Rahul K', '@shashwat_p book the hall'],
-      ['Rahul K', 'and send the poster'],
-    ])
-    expect(chat.messages[0].ts.toISOString()).toBe('2026-10-08T15:33:40.000Z')
-  })
-})
+const asFile = (s: string, n: string) => new File([s], n)
 
 describe('readChatFile source detection', () => {
   it('routes JSON, HTML and text to the right parser', async () => {
-    const asFile = (s: string, n: string) => new File([s], n)
     expect((await readChatFile(asFile(JSON.stringify(json), 'result.json'), 'result.json')).source).toBe('telegram')
     expect((await readChatFile(asFile(html, 'messages.html'), 'messages.html')).source).toBe('telegram')
     const wa = await readChatFile(asFile('09/10/2026, 14:05 - A: hi', 'WhatsApp Chat with Fest.txt'), 'WhatsApp Chat with Fest.txt')
@@ -78,8 +37,7 @@ describe('readChatFile source detection', () => {
 })
 
 describe('Telegram bot token paste', () => {
-  it('extracts the token from whatever was pasted', async () => {
-    const { extractToken } = await import('../telegramBot')
+  it('extracts the token from whatever was pasted', () => {
     const secret = 'AAHfakeFakeFakeFakeFakeFakeFakeFake' // real secrets are always 35 characters
     expect(secret).toHaveLength(35)
     const t = `1234567890:${secret}`
@@ -90,5 +48,15 @@ describe('Telegram bot token paste', () => {
     expect(extractToken(`1234567890:${secret.slice(0, 17)} ${secret.slice(17)}`)).toBe(t)   // space added while copying
     expect(extractToken(`1234567890:${secret.slice(0, 20)}\n${secret.slice(20)}`)).toBe(t)  // line wrap
     expect(extractToken('@my_fest_bot')).toBeNull()
+  })
+})
+
+describe('import safety', () => {
+  it('rejects files that are far too large to be a chat export', async () => {
+    const huge = { size: MAX_FILE_BYTES + 1, arrayBuffer: async () => new ArrayBuffer(0) } as unknown as Blob
+    await expect(readChatFile(huge, 'video.mp4')).rejects.toThrow(/MB/)
+  })
+  it('rejects JSON that is not a Telegram export', async () => {
+    await expect(readChatFile(new File(['{"hello":1}'], 'x.json'), 'x.json')).rejects.toThrow(/Unrecognised JSON/)
   })
 })

@@ -24,7 +24,7 @@ interface TgExport extends TgChat {
 export interface ImportedChat { name: string; messages: Message[]; me?: string }
 
 function flatten(t: TgText | undefined): string {
-  if (t == null) return ''
+  if (t === null || t === undefined) return ''
   if (typeof t === 'string') return t
   if (Array.isArray(t)) return t.map(flatten).join('')
   return t.text ?? ''
@@ -57,7 +57,7 @@ export function parseTelegramJson(data: TgExport): ImportedChat {
   let chat: TgChat = data
   if (!Array.isArray(data.messages) && data.chats?.list?.length) {
     const lastTs = (c: TgChat) => +(c.messages?.at(-1)?.date_unixtime ?? 0)
-    chat = [...data.chats.list].filter(c => c.messages?.length).sort((a, b) => lastTs(b) - lastTs(a))[0] ?? data.chats.list[0]
+    chat = data.chats.list.filter(c => c.messages?.length).toSorted((a, b) => lastTs(b) - lastTs(a))[0] ?? data.chats.list[0]
   }
   return { name: chat.name || 'Telegram chat', messages: fromChat(chat), me: me || undefined }
 }

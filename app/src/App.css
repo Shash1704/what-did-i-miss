@@ -706,3 +706,9 @@ button.me:hover .avatar { box-shadow: 0 0 0 2px var(--orange); }
 .add-cal { gap: 6px; cursor: pointer; }
 .add-cal:hover { border-color: var(--orange); color: #fff; }
 .add-cal svg { color: var(--orange); }
+
+/* Buttons used as list rows keep the row look */
+button.row-item { width: 100%; text-align: left; color: inherit; font: inherit; cursor: pointer; }
+/* Long chats: let the browser skip layout/paint for off-screen messages */
+.chat-row { content-visibility: auto; contain-intrinsic-size: auto 64px; }
+.loading-tile { min-height: 240px; display: grid; place-items: center; color: var(--muted); }

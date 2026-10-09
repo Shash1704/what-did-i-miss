@@ -2,9 +2,9 @@
 // api.telegram.org: no server of ours in between. Telegram queues a bot's undelivered messages
 // for up to 24 hours, which suits "what did I miss": open the app later and they're waiting.
 // The token and received messages are stored only in this browser (localStorage).
-import type { Message } from './parser'
+import type { Message } from '../core/parser'
+import { storage } from './storage'
 
-const KEY = 'wdim-tg-live'
 const MAX_PER_CHAT = 3000
 
 interface StoredMsg { ts: number; author: string; text: string }
@@ -20,12 +20,8 @@ interface TgUser { first_name?: string; last_name?: string; username?: string }
 interface TgMsg { message_id: number; date: number; chat: { id: number; title?: string; first_name?: string; type: string }; from?: TgUser; text?: string; caption?: string; sender_chat?: { title?: string } }
 interface TgUpdate { update_id: number; message?: TgMsg; edited_message?: TgMsg; channel_post?: TgMsg }
 
-export function loadStore(): TgStore | null {
-  try { const raw = localStorage.getItem(KEY); return raw ? JSON.parse(raw) as TgStore : null } catch { return null }
-}
-export function saveStore(s: TgStore | null) {
-  try { if (s) localStorage.setItem(KEY, JSON.stringify(s)); else localStorage.removeItem(KEY) } catch { /* storage full or unavailable */ }
-}
+export const loadStore = (): TgStore | null => storage.telegram.get<TgStore>()
+export const saveStore = (s: TgStore | null): void => storage.telegram.set(s)
 
 /**
  * Pull the bot token out of whatever was pasted: BotFather's whole message, a "bot" prefix,
@@ -101,7 +97,7 @@ export async function pollOnce(store: TgStore, signal: AbortSignal): Promise<str
 export function listChats(store: TgStore): LiveChatInfo[] {
   return Object.entries(store.chats)
     .map(([id, c]) => ({ id, title: c.title, count: c.msgs.length, last: c.msgs.at(-1)?.ts }))
-    .sort((a, b) => (b.last ?? 0) - (a.last ?? 0))
+    .toSorted((a, b) => (b.last ?? 0) - (a.last ?? 0))
 }
 
 export function chatMessages(store: TgStore, id: string): Message[] {

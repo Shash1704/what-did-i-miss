@@ -54,9 +54,11 @@ You are a senior full-stack engineer at a 3-hour hackathon. Build a polished, de
 - **Installable** app with an icon.
 
 ## 7. Quality
-- **Vitest** unit tests for the parsers (WhatsApp, Telegram, date order), identity matching, the rule engine, follow-up tracking and bot-token extraction (32 tests).
+- **Layered architecture**: pure `core/` (no React, no I/O), `services/` (storage, import, LLM, Telegram), `hooks/` (state orchestration), `components/` (layout, views, overlays, ui), with a ~200-line `App.tsx` composition root. One fail-safe storage layer. Lazy-load the secondary views. Document it in `ARCHITECTURE.md` (layers, data flow, ADRs, performance) and `SECURITY.md` (threat model, stored data, allowed network).
+- **TypeScript strict** and **oxlint** (correctness, suspicious, perf, React hooks, no import cycles, no `any`).
+- **Vitest** (44 tests): parsers (WhatsApp, Telegram, date order), identity, the rule engine, follow-ups, the briefing view-model, calendar export, merging, storage, import safety, bot-token extraction, plus a **performance budget** (10,000 messages parsed and analysed in about 0.2 s).
 - An **accuracy harness** with hand-labelled chats (the dev set, an English held-out set with traps, and a Hinglish held-out set) reporting precision / recall / F1 per detector. Publish the numbers **with caveats** in `ACCURACY.md`.
-- **GitHub Actions**: run the tests before building; a failing test blocks the deploy to GitHub Pages.
+- **GitHub Actions**: a `verify` job (type-check → lint → tests → `npm audit`) must pass before the `deploy` job builds and publishes to GitHub Pages.
 
 ## 8. Deliverables
 - A public GitHub repo, auto-deployed to GitHub Pages.

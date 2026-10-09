@@ -1,5 +1,5 @@
 import type { MLCEngineInterface, InitProgressReport } from '@mlc-ai/web-llm'
-import type { Analysis } from './analyze'
+import type { Analysis } from '../core/analyze'
 
 export const MODELS = [
   { id: 'Qwen2.5-1.5B-Instruct-q4f16_1-MLC', label: 'Qwen 2.5 · 1.5B (smart, ~1 GB)' },
@@ -63,7 +63,7 @@ export async function loadModel(requested: string, onProgress: (r: InitProgressR
   } else {
     try {
       // Preferred: a Web Worker keeps model loading and token generation off the UI thread
-      worker ??= new Worker(new URL('./llm.worker.ts', import.meta.url), { type: 'module' })
+      worker ??= new Worker(new URL('../workers/llm.worker.ts', import.meta.url), { type: 'module' })
       engine = await webllm.CreateWebWorkerMLCEngine(worker, id, { initProgressCallback: onProgress })
     } catch (err) {
       console.warn('LLM worker unavailable, running on the main thread', err)
@@ -91,6 +91,11 @@ export function isLoaded() {
 
 
 
+const dueText = (d: Date) => d.toLocaleString(undefined, { weekday: 'short', hour: 'numeric', minute: '2-digit' })
+const stripQuotes = (t: string) => t.replace(/^["'“]|["'”]$/g, '').trim()
+const replyRequest = (who: string, text: string, due?: string) =>
+  `${who} asked me in our group chat: "${text.replace(/\n/g, ' ').slice(0, 300)}"\nWrite my reply to ${who}, confirming I'll do it${due ? ` (deadline: ${due})` : ''}.`
+
 function buildPrompt(a: Analysis, me: string): string {
   // Small on-device models do best with a narrow task over pre-extracted, grounded facts.
   // Each fact carries its sender and an absolute deadline, so the model neither swaps names
@@ -98,11 +103,10 @@ function buildPrompt(a: Analysis, me: string): string {
   // context confuses a 1.5B model); quiet chats get the actual recent messages, so the model
   // summarises what was said instead of inventing tasks.
   const now = a.now.toLocaleString(undefined, { weekday: 'long', hour: 'numeric', minute: '2-digit' })
-  const due = (d: Date) => d.toLocaleString(undefined, { weekday: 'short', hour: 'numeric', minute: '2-digit' })
-  const important = a.scored.filter(s => s.score >= 3).sort((x, y) => y.score - x.score).slice(0, 5)
+  const important = a.scored.filter(s => s.score >= 3).toSorted((x, y) => y.score - x.score).slice(0, 5)
   const facts = important.map((s, i) => {
     const forMe = s.owner === me ? ' [asks YOU]' : s.owner ? ` [for ${s.owner}]` : ''
-    const dl = s.deadline ? ` [deadline: ${due(s.deadline)}]` : ''
+    const dl = s.deadline ? ` [deadline: ${dueText(s.deadline)}]` : ''
     return `${i + 1}. ${s.msg.author} wrote${forMe}${dl}: ${s.msg.text.replace(/\n/g, ' ').slice(0, 200)}`
   }).join('\n')
   const shown = new Set(important.map(s => s.msg.id))
@@ -163,24 +167,21 @@ export async function draftReply(input: { author: string; text: string; me: stri
   const first = input.author.split(/\s+/)[0]
   // The model speaks AS the user (first person) and never needs the user's own name, which small
   // models otherwise confuse with the recipient. One example pins the style.
-  const ask = (who: string, text: string, due?: string) =>
-    `${who} asked me in our group chat: "${text.replace(/\n/g, ' ').slice(0, 300)}"\nWrite my reply to ${who}, confirming I'll do it${due ? ` (deadline: ${due})` : ''}.`
-  const clean = (t: string) => t.replace(/^["'“]|["'”]$/g, '').trim()
   const stream = await engine.chat.completions.create({
     stream: true,
     temperature: 0.3,
     max_tokens: 60,
     messages: [
       { role: 'system', content: 'You write short, friendly chat replies. You ARE the person replying: write in first person ("I"). One or two short sentences, under 25 words. Output only the reply text.' },
-      { role: 'user', content: ask('Priya', 'can you bring the banner to the hall by 10am tomorrow?', 'Sat 10:00 AM') },
+      { role: 'user', content: replyRequest('Priya', 'can you bring the banner to the hall by 10am tomorrow?', 'Sat 10:00 AM') },
       { role: 'assistant', content: "Sure Priya, I'll bring the banner to the hall before 10 tomorrow!" },
-      { role: 'user', content: ask(first, input.text, input.due) },
+      { role: 'user', content: replyRequest(first, input.text, input.due) },
     ],
   })
   let full = ''
   for await (const chunk of stream) {
     full += chunk.choices[0]?.delta?.content ?? ''
-    onToken(clean(full))
+    onToken(stripQuotes(full))
   }
-  return clean(full)
+  return stripQuotes(full)
 }
