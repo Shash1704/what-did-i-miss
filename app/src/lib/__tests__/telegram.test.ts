@@ -80,13 +80,15 @@ describe('readChatFile source detection', () => {
 describe('Telegram bot token paste', () => {
   it('extracts the token from whatever was pasted', async () => {
     const { extractToken } = await import('../telegramBot')
-    const t = '1234567890:AAHfakeFakeFakeFakeFakeFakeFakeFak'
+    const secret = 'AAHfakeFakeFakeFakeFakeFakeFakeFake' // real secrets are always 35 characters
+    expect(secret).toHaveLength(35)
+    const t = `1234567890:${secret}`
     expect(extractToken(t)).toBe(t)
     expect(extractToken(`bot${t}`)).toBe(t)
     expect(extractToken(`Use this token to access the HTTP API:\n${t}\nKeep your token secure`)).toBe(t)
-    expect(extractToken(` "${t}"​ `)).toBe(t)
-    expect(extractToken('1234567890:AAHfakeFakeFake FakeFakeFakeFakeFak')).toBe(t)   // space from copying
-    expect(extractToken('1234567890:AAHfakeFake\nFakeFakeFakeFakeFakeFak')).toBe(t)  // line wrap
+    expect(extractToken(` "${t}"\u200b `)).toBe(t)
+    expect(extractToken(`1234567890:${secret.slice(0, 17)} ${secret.slice(17)}`)).toBe(t)   // space added while copying
+    expect(extractToken(`1234567890:${secret.slice(0, 20)}\n${secret.slice(20)}`)).toBe(t)  // line wrap
     expect(extractToken('@my_fest_bot')).toBeNull()
   })
 })
