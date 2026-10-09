@@ -26,6 +26,12 @@ function toDate(d: string, m: string, y: string, hh: string, mm: string, ss: str
   return new Date(year, month - 1, day, hour, +mm, ss ? +ss : 0)
 }
 
+// WhatsApp marks people who aren't in your contacts as "~ Name" (often with a narrow no-break space)
+// and sprinkles invisible left-to-right marks; strip both so names and @mentions match.
+function cleanAuthor(raw: string): string {
+  return raw.replace(/[\u200e\u200f\u202a-\u202e]/g, '').replace(/^[~\s\u00a0\u202f]+/, '').trim()
+}
+
 const SYSTEM = /(end-to-end encrypted|created group|added you|changed the subject|changed this group|left$|joined using|<Media omitted>|This message was deleted|image omitted|sticker omitted)/i
 
 export function parseChat(raw: string): Message[] {
@@ -38,7 +44,7 @@ export function parseChat(raw: string): Message[] {
     if (m) {
       timestamped = true
       const [, d, mo, y, hh, mm, ss, ampm, author, text] = m
-      out.push({ id: out.length, ts: toDate(d, mo, y, hh, mm, ss, ampm), author: author.trim(), text: text.trim() })
+      out.push({ id: out.length, ts: toDate(d, mo, y, hh, mm, ss, ampm), author: cleanAuthor(author), text: text.replace(/\u200e/g, '').trim() })
     } else if (out.length && line.trim() && (timestamped || !GENERIC.test(line))) {
       out[out.length - 1].text += '\n' + line.trim()
     } else if (!timestamped) {

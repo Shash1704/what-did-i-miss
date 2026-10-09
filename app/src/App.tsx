@@ -176,13 +176,20 @@ export default function App() {
     if (!demo) closeIntro()
     let remembered: string | null = null
     try { remembered = localStorage.getItem('wdim-me') } catch { /* storage unavailable */ }
-    setMe(meGuess && ppl.includes(meGuess) ? meGuess : remembered && ppl.includes(remembered) ? remembered : ppl[0])
-    setSinceIdx(lastRead ?? Math.floor(parsed.length * 0.2))
+    const who = meGuess && ppl.includes(meGuess) ? meGuess : remembered && ppl.includes(remembered) ? remembered : ppl[0]
+    setMe(who)
+    setSinceIdx(lastRead ?? defaultSince(parsed, who))
     setDone(new Set())
     setView('brief')
     setQuery('')
     resetSummary()
     window.scrollTo({ top: 0 })
+  }
+
+  // You've read everything up to your own last message; fall back to the last 80% if you never spoke
+  function defaultSince(list: Message[], who: string) {
+    for (let i = list.length - 1; i >= 0; i--) if (list[i].author === who) return Math.min(i + 1, list.length - 1)
+    return Math.floor(list.length * 0.2)
   }
 
   function onFile(f: File) {
@@ -291,7 +298,7 @@ export default function App() {
         {a ? (
           <label className="me" title="Who are you in this chat?">
             <Avatar name={me} size={38} />
-            <select value={me} onChange={e => { setMe(e.target.value); resetSummary(); try { localStorage.setItem('wdim-me', e.target.value) } catch { /* storage unavailable */ } }}>
+            <select value={me} onChange={e => { setMe(e.target.value); if (!isDemo) setSinceIdx(defaultSince(msgs, e.target.value)); resetSummary(); try { localStorage.setItem('wdim-me', e.target.value) } catch { /* storage unavailable */ } }}>
               {people.map(p => <option key={p}>{p}</option>)}
             </select>
           </label>

@@ -50,7 +50,7 @@ function buildPrompt(a: Analysis, me: string): string {
 
 ${facts || '- nothing important'}
 
-Write a TL;DR for me in 2 or 3 plain sentences (under 70 words). Start with the most urgent thing I personally must do and its deadline, then mention the key decisions. Talk to me as "you". No bullet points, no quotes, no headings.`
+Write a TL;DR for me in 2 or 3 plain sentences (under 70 words). Start with the most urgent thing I personally must do and its deadline, then mention the key decisions. Talk to me as "you" and start your answer with the word "You". No greetings, no bullet points, no quotes, no headings.`
 }
 
 export async function summarize(a: Analysis, me: string, onToken: (full: string) => void, signal?: { cancelled: boolean }) {
