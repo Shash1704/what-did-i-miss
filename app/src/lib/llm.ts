@@ -3,9 +3,46 @@ import { fmtWhen, type Analysis } from './analyze'
 
 export const MODELS = [
   { id: 'Qwen2.5-1.5B-Instruct-q4f16_1-MLC', label: 'Qwen 2.5 · 1.5B (smart, ~1 GB)' },
-  { id: 'Llama-3.2-1B-Instruct-q4f16_1-MLC', label: 'Llama 3.2 · 1B (balanced, ~0.9 GB)' },
+  { id: 'Llama-3.2-1B-Instruct-q4f16_1-MLC', label: 'Llama 3.2 · 1B (light, ~0.7 GB)' },
   { id: 'Llama-3.2-3B-Instruct-q4f16_1-MLC', label: 'Llama 3.2 · 3B (best, ~2 GB)' },
 ]
+export const DEFAULT_MODEL = MODELS[0].id
+export const LIGHT_MODEL = MODELS[1].id
+
+interface GpuInfo { ok: boolean; f16: boolean; maxBufferMB: number; deviceMemoryGB?: number }
+let gpuInfoPromise: Promise<GpuInfo> | null = null
+
+/** What this device's GPU can do (cached). */
+export function gpuInfo(): Promise<GpuInfo> {
+  gpuInfoPromise ??= (async () => {
+    const deviceMemoryGB = (navigator as Navigator & { deviceMemory?: number }).deviceMemory
+    try {
+      const gpu = (navigator as Navigator & { gpu?: { requestAdapter(): Promise<{ features: Set<string>; limits: { maxBufferSize: number } } | null> } }).gpu
+      const adapter = await gpu?.requestAdapter()
+      if (!adapter) return { ok: false, f16: false, maxBufferMB: 0, deviceMemoryGB }
+      return { ok: true, f16: adapter.features.has('shader-f16'), maxBufferMB: adapter.limits.maxBufferSize / 2 ** 20, deviceMemoryGB }
+    } catch {
+      return { ok: false, f16: false, maxBufferMB: 0, deviceMemoryGB }
+    }
+  })()
+  return gpuInfoPromise
+}
+
+/** GPUs without 16-bit float shaders need the 32-bit-float build of the same model. */
+export async function resolveModelId(id: string): Promise<string> {
+  return (await gpuInfo()).f16 ? id : id.replace('q4f16_1', 'q4f32_1')
+}
+
+/** Pick a model that will actually run here: the light one on low-memory devices. */
+export async function recommendModel(): Promise<{ id: string; reason: string }> {
+  const g = await gpuInfo()
+  if (!g.ok) return { id: DEFAULT_MODEL, reason: 'No WebGPU adapter found' }
+  const lowMemory = (g.deviceMemoryGB !== undefined && g.deviceMemoryGB <= 4) || g.maxBufferMB < 1024
+  const precision = g.f16 ? '' : ' (32-bit build for this GPU)'
+  return lowMemory
+    ? { id: LIGHT_MODEL, reason: `Lighter model picked for this device${precision}` }
+    : { id: DEFAULT_MODEL, reason: `Best fit for this device${precision}` }
+}
 
 let engine: MLCEngineInterface | null = null
 let loadedId: string | null = null
@@ -16,7 +53,8 @@ export function hasWebGPU(): boolean {
 
 let worker: Worker | null = null
 
-export async function loadModel(id: string, onProgress: (r: InitProgressReport) => void) {
+export async function loadModel(requested: string, onProgress: (r: InitProgressReport) => void) {
+  const id = await resolveModelId(requested)
   if (engine && loadedId === id) return engine
   const webllm = await import('@mlc-ai/web-llm')
   if (engine) {
@@ -41,7 +79,7 @@ export async function loadModel(id: string, onProgress: (r: InitProgressReport) 
 export async function isCached(id: string): Promise<boolean> {
   try {
     const webllm = await import('@mlc-ai/web-llm')
-    return await webllm.hasModelInCache(id)
+    return await webllm.hasModelInCache(await resolveModelId(id))
   } catch {
     return false
   }
@@ -55,17 +93,22 @@ export function isLoaded() {
 
 function buildPrompt(a: Analysis, me: string): string {
   // Small on-device models do best with a narrow task over pre-extracted, grounded facts.
+  // Each fact carries its sender and an absolute deadline, so the model neither swaps names
+  // nor repeats stale relative words ("tomorrow") from old messages.
   const important = a.scored.filter(s => s.score >= 3).sort((x, y) => y.score - x.score).slice(0, 8)
-  const facts = important.map(s => {
-    const due = s.deadline ? ` (deadline: ${fmtWhen(s.deadline, a.now).split(' · ')[0]})` : ''
-    return `- ${s.msg.author}: ${s.msg.text.replace(/\n/g, ' ').slice(0, 200)}${due}`
+  const now = a.now.toLocaleString(undefined, { weekday: 'long', hour: 'numeric', minute: '2-digit' })
+  const facts = important.map((s, i) => {
+    const forMe = s.owner === me ? ' [asks YOU]' : s.owner ? ` [for ${s.owner}]` : ''
+    const due = s.deadline ? ` [deadline: ${fmtWhen(s.deadline, a.now)}]` : ''
+    return `${i + 1}. ${s.msg.author} wrote${forMe}${due}: ${s.msg.text.replace(/\n/g, ' ').slice(0, 200)}`
   }).join('\n')
 
-  return `I am ${me}. I was away and missed ${a.unread.length} messages in my group chat. The important ones, most urgent first:
+  return `It is now ${now}. I am ${me}. I missed ${a.unread.length} messages in my group chat. The important ones, most urgent first:
 
 ${facts || '- nothing important'}
 
-Write a TL;DR for me in 2 or 3 plain sentences (under 70 words). Start with the most urgent thing I personally must do and its deadline, then mention the key decisions. Talk to me as "you" and start your answer with the word "You". No greetings, no bullet points, no quotes, no headings.`
+Write a TL;DR for me in 2 or 3 plain sentences (under 70 words). Start with the most urgent thing I must do and its deadline, then the key decisions.
+Rules: talk to me as "you" and start with the word "You". When you say who asked, use the name at the start of that same numbered line. State deadlines using the [deadline: …] times, not words like "tomorrow" from the messages. No greetings, bullet points, quotes, brackets or headings.`
 }
 
 export async function summarize(a: Analysis, me: string, onToken: (full: string) => void, signal?: { cancelled: boolean }) {

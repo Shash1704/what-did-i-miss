@@ -1,7 +1,7 @@
 import { useEffect, useMemo, useRef, useState } from 'react'
 import { parseChat, participants, type Message } from './lib/parser'
 import { analyze, fmtWhen, type Scored } from './lib/analyze'
-import { MODELS, hasWebGPU, isCached, loadModel, summarize } from './lib/llm'
+import { LIGHT_MODEL, MODELS, hasWebGPU, isCached, loadModel, recommendModel, summarize } from './lib/llm'
 import { buildDemoChat, DEMO_ME, DEMO_LAST_READ, DEMO_NAME } from './data/demo'
 import { readChatFile, takeSharedChat, type ChatSource, type LoadedChat } from './lib/importFile'
 import { cleanTitle, deadlineCalendar, hotTopics, hueFor, initials } from './lib/insights'
@@ -167,6 +167,13 @@ export default function App() {
 
   useEffect(() => { isCached(modelId).then(setCached) }, [modelId, llm])
 
+  // Pick a model this device can run (unless the user already chose one)
+  const [modelNote, setModelNote] = useState('')
+  const modelTouched = useRef(false)
+  useEffect(() => {
+    recommendModel().then(r => { if (!modelTouched.current) { setModelId(r.id); setModelNote(r.reason) } })
+  }, [])
+
   function resetSummary() {
     setSummary('')
     if (llm === 'done') setLlm('ready')
@@ -214,7 +221,17 @@ export default function App() {
     cancel.current = { cancelled: false }
     try {
       setLlm('loading')
-      await loadModel(modelId, r => setProgress({ pct: Math.round(r.progress * 100), text: r.text }))
+      const onProgress = (r: { progress: number; text: string }) => setProgress({ pct: Math.round(r.progress * 100), text: r.text })
+      try {
+        await loadModel(modelId, onProgress)
+      } catch (err) {
+        // Out of GPU memory or an unsupported GPU feature: retry once with the lightest model
+        if (modelId === LIGHT_MODEL) throw err
+        console.warn('Model failed to load, falling back to the light model', err)
+        setModelId(LIGHT_MODEL)
+        setModelNote('Switched to a lighter model for this device')
+        await loadModel(LIGHT_MODEL, onProgress)
+      }
       setLlm('generating')
       setSummary('')
       const t0 = performance.now()
@@ -441,7 +458,7 @@ export default function App() {
   const aiBody = (
     <div className="ai-inline">
       <div className="ai-row">
-        <span className="ai-name"><Icon name="sparkle" size={15} /> AI catch-up <small>{modelName} · on this device</small></span>
+        <span className="ai-name"><Icon name="sparkle" size={15} /> AI catch-up <small>{modelName} · on this device{modelNote && llm !== 'done' ? ` · ${modelNote.toLowerCase()}` : ''}</small></span>
         {(llm === 'done' || llm === 'error') && <button className="btn-link" onClick={runAI}>Regenerate</button>}
         {llm === 'generating' && <button className="btn-link" onClick={() => (cancel.current.cancelled = true)}>Stop</button>}
       </div>
@@ -455,7 +472,7 @@ export default function App() {
       {(llm === 'idle' || llm === 'ready' || llm === 'error') && (
         <div className="ai-actions">
           <button className="btn-orange" onClick={runAI}><Icon name="sparkle" size={16} /> Summarize</button>
-          <select className="model" value={modelId} onChange={e => setModelId(e.target.value)} disabled={llm === 'ready'}>
+          <select className="model" value={modelId} title={modelNote} onChange={e => { modelTouched.current = true; setModelId(e.target.value); setModelNote('') }} disabled={llm === 'ready'}>
             {MODELS.map(m => <option key={m.id} value={m.id}>{m.label}</option>)}
           </select>
         </div>
