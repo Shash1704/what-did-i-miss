@@ -85,6 +85,8 @@ describe('Telegram bot token paste', () => {
     expect(extractToken(`bot${t}`)).toBe(t)
     expect(extractToken(`Use this token to access the HTTP API:\n${t}\nKeep your token secure`)).toBe(t)
     expect(extractToken(` "${t}"​ `)).toBe(t)
+    expect(extractToken('1234567890:AAHfakeFakeFake FakeFakeFakeFakeFak')).toBe(t)   // space from copying
+    expect(extractToken('1234567890:AAHfakeFake\nFakeFakeFakeFakeFakeFak')).toBe(t)  // line wrap
     expect(extractToken('@my_fest_bot')).toBeNull()
   })
 })

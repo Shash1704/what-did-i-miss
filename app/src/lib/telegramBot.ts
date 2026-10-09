@@ -32,8 +32,20 @@ export function saveStore(s: TgStore | null) {
  * quotes, spaces or invisible characters. A token looks like 123456789:AAH… (digits, colon, 35 chars).
  */
 export function extractToken(pasted: string): string | null {
-  const m = pasted.replace(/[\u200b-\u200f\u2060\ufeff]/g, '').match(/(\d{5,15}):([A-Za-z0-9_-]{30,})/)
-  return m ? `${m[1]}:${m[2]}` : null
+  const text = pasted.replace(/[​-‏⁠﻿]/g, '')
+  // The secret after the colon is always 35 characters. Copying from Telegram can wrap it and
+  // insert a space or line break, so gather 35 token characters while skipping whitespace.
+  for (const m of text.matchAll(/(\d{5,15}):/g)) {
+    let secret = ''
+    for (let i = m.index! + m[0].length; i < text.length && secret.length < 35; i++) {
+      const ch = text[i]
+      if (/[A-Za-z0-9_-]/.test(ch)) secret += ch
+      else if (!/\s/.test(ch)) break
+    }
+    if (secret.length === 35) return `${m[1]}:${secret}`
+  }
+  const fallback = text.match(/(\d{5,15}):([A-Za-z0-9_-]{30,})/)
+  return fallback ? `${fallback[1]}:${fallback[2]}` : null
 }
 
 async function call<T>(token: string, method: string, params: Record<string, string> = {}, signal?: AbortSignal): Promise<T> {
