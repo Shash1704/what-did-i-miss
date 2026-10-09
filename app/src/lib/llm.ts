@@ -40,19 +40,17 @@ export function isLoaded() {
 
 function buildPrompt(a: Analysis, me: string): string {
   // Small on-device models do best with a narrow task over pre-extracted, grounded facts.
-  const important = a.scored.filter(s => s.score >= 3).sort((x, y) => y.score - x.score).slice(0, 14)
-  const facts = important.map((s, i) => {
-    const due = s.deadline ? ` [due ${fmtWhen(s.deadline, a.now).split(' · ')[0]}]` : ''
-    const tags = s.flags.map(f => f.label).filter(l => !l.startsWith('due')).join(', ')
-    return `${i + 1}. ${s.msg.author} wrote: "${s.msg.text.replace(/\n/g, ' ').slice(0, 220)}"${due}${tags ? ` (${tags})` : ''}`
+  const important = a.scored.filter(s => s.score >= 3).sort((x, y) => y.score - x.score).slice(0, 8)
+  const facts = important.map(s => {
+    const due = s.deadline ? ` (deadline: ${fmtWhen(s.deadline, a.now).split(' · ')[0]})` : ''
+    return `- ${s.msg.author}: ${s.msg.text.replace(/\n/g, ' ').slice(0, 200)}${due}`
   }).join('\n')
-  const chatter = a.unread.length - important.length
 
-  return `My name is ${me}. While I was away, ${a.unread.length} messages were posted in my group chat. Here are the important ones (the other ${chatter} were casual chatter):
+  return `I am ${me}. I was away and missed ${a.unread.length} messages in my group chat. The important ones, most urgent first:
 
-${facts || 'None.'}
+${facts || '- nothing important'}
 
-Tell me what I missed in 4 to 6 short bullet points, most urgent first. Address me as "you". For each point say who, what, and the deadline if there is one. Start every line with "- ". Only use facts from the messages above.`
+Write a TL;DR for me in 2 or 3 plain sentences (under 70 words). Start with the most urgent thing I personally must do and its deadline, then mention the key decisions. Talk to me as "you". No bullet points, no quotes, no headings.`
 }
 
 export async function summarize(a: Analysis, me: string, onToken: (full: string) => void, signal?: { cancelled: boolean }) {
@@ -62,9 +60,9 @@ export async function summarize(a: Analysis, me: string, onToken: (full: string)
     temperature: 0.1,
     frequency_penalty: 0.6,
     presence_penalty: 0.3,
-    max_tokens: 350,
+    max_tokens: 160,
     messages: [
-      { role: 'system', content: 'You write brief, accurate catch-up summaries of group chats. You never invent names, dates or tasks.' },
+      { role: 'system', content: 'You write brief, accurate catch-up summaries of group chats in plain prose. You never invent names, dates or tasks.' },
       { role: 'user', content: buildPrompt(a, me) },
     ],
   })

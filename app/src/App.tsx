@@ -7,11 +7,7 @@ import './App.css'
 
 type LlmState = 'idle' | 'loading' | 'ready' | 'generating' | 'done' | 'error' | 'unsupported'
 
-const PRIORITY_META: Record<Priority, { label: string; dot: string }> = {
-  urgent: { label: 'Urgent', dot: '🔴' },
-  relevant: { label: 'Relevant', dot: '🟡' },
-  fyi: { label: 'FYI', dot: '⚪' },
-}
+const PRIORITY_LABEL: Record<Priority, string> = { urgent: 'Urgent', relevant: 'Relevant', fyi: 'FYI / chatter' }
 
 function useOnline() {
   const [online, setOnline] = useState(navigator.onLine)
@@ -33,6 +29,17 @@ function fmtDuration(ms: number) {
   if (m < 60) return `${m}m`
   const h = Math.floor(m / 60)
   return h < 48 ? `${h}h ${m % 60}m` : `${Math.round(h / 24)}d`
+}
+
+const pad2 = (n: number) => String(n).padStart(2, '0') + '.'
+
+function Arrow({ dir = 'right' }: { dir?: 'right' | 'down' | 'diag' | 'up' }) {
+  const rot = { right: 0, down: 90, diag: 45, up: -90 }[dir]
+  return (
+    <svg className="arrow" viewBox="0 0 24 24" width="1em" height="1em" style={{ transform: `rotate(${rot}deg)` }} aria-hidden>
+      <path d="M4 12h15M13 6l6 6-6 6" fill="none" stroke="currentColor" strokeWidth="1.6" strokeLinecap="round" strokeLinejoin="round" />
+    </svg>
+  )
 }
 
 function Markdown({ text }: { text: string }) {
@@ -63,6 +70,15 @@ function highlight(text: string, me: string) {
   return text.split(re).map((p, i) => (i % 2 ? <mark key={i}>{p}</mark> : p))
 }
 
+function CardFoot({ n, children }: { n: number; children?: React.ReactNode }) {
+  return (
+    <div className="card-foot">
+      <span className="num">{pad2(n)}</span>
+      <div className="foot-action">{children}</div>
+    </div>
+  )
+}
+
 export default function App() {
   const [raw, setRaw] = useState<string | null>(null)
   const [chatName, setChatName] = useState('')
@@ -90,6 +106,11 @@ export default function App() {
 
   useEffect(() => { isCached(modelId).then(setCached) }, [modelId, llm])
 
+  function resetSummary() {
+    setSummary('')
+    if (llm === 'done') setLlm('ready')
+  }
+
   function open(text: string, name: string, meGuess?: string, lastRead?: number) {
     const parsed = parseChat(text)
     if (!parsed.length) { alert("Couldn't find any messages. Paste a WhatsApp export or lines like \"Name: message\"."); return }
@@ -98,10 +119,10 @@ export default function App() {
     setChatName(name)
     setMe(meGuess && ppl.includes(meGuess) ? meGuess : ppl[0])
     setSinceIdx(lastRead ?? Math.floor(parsed.length * 0.2))
-    setSummary('')
     setDone(new Set())
     setTab('brief')
-    if (llm === 'done') setLlm('ready')
+    resetSummary()
+    window.scrollTo({ top: 0 })
   }
 
   function onFile(f: File) {
@@ -134,48 +155,90 @@ export default function App() {
     setTimeout(() => setFlashId(null), 2500)
   }
 
+  const brand = <div className="brand" onClick={() => setRaw(null)} role="button">WhatDidIMiss<sup>®</sup></div>
   const badge = (
     <div className={`privacy ${online ? '' : 'offline'}`} title="Your chat is parsed and summarized entirely inside this browser tab. Nothing is uploaded.">
-      <span className="lock">🔒</span> 100% on-device · 0 bytes sent
-      <span className="net">{online ? '● online' : '✈ offline'}</span>
+      <span className="dot" />{online ? 'On-device · 0 bytes sent' : 'Offline · still working'}
     </div>
   )
 
   // ---------------- Landing ----------------
   if (!a) {
+    const tryDemo = () => open(buildDemoChat(), DEMO_NAME, DEMO_ME, DEMO_LAST_READ)
     return (
-      <div className="landing">
-        <header className="topbar">
-          <div className="logo">👀 What Did I Miss?</div>
-          {badge}
+      <div className="page">
+        <header className="nav">
+          {brand}
+          <div className="nav-right">{badge}<span className="menu"><i /><i />MENU</span></div>
         </header>
-        <main className="hero">
-          <h1>200 unread messages.<br /><span>Catch up in 10 seconds.</span></h1>
-          <p className="sub">Drop in a group chat. Get your mentions, deadlines, decisions and to-dos, prioritized by urgency, plus an AI summary that runs <b>entirely on your device</b>. Your chats never leave your device.</p>
-          <div className="cta">
-            <button className="primary big" onClick={() => open(buildDemoChat(), DEMO_NAME, DEMO_ME, DEMO_LAST_READ)}>⚡ Try the demo chat</button>
+
+        <section className="card screen-mist hero">
+          <div className="hero-top">
+            <h1>What did<br />I miss?</h1>
+            <p className="caption">Catch up on an overwhelming group chat<br />in seconds. Private AI that runs on your device.</p>
           </div>
-          <div
-            className={`drop ${dragging ? 'over' : ''}`}
+          <button className="rule-row" onClick={tryDemo}>
+            <span>Try the demo chat</span><Arrow />
+          </button>
+          <div className="hero-stats">
+            <div className="metric"><span className="m-label">Unread messages <span className="circ"><Arrow dir="down" /></span></span><span className="m-val">200<small>+</small></span></div>
+            <div className="metric"><span className="m-label">Time to catch up <span className="circ"><Arrow dir="up" /></span></span><span className="m-val">10<small>sec</small></span></div>
+          </div>
+          <CardFoot n={1}><button className="details" onClick={tryDemo}>Open demo <span className="circ solid"><Arrow /></span></button></CardFoot>
+        </section>
+
+        <div className="trio">
+          <section
+            className={`card screen-cream drop ${dragging ? 'over' : ''}`}
             onDragOver={e => { e.preventDefault(); setDragging(true) }}
             onDragLeave={() => setDragging(false)}
             onDrop={e => { e.preventDefault(); setDragging(false); const f = e.dataTransfer.files[0]; if (f) onFile(f) }}
           >
-            <div>📂 Drop a <b>WhatsApp chat export (.txt)</b> here, or <label className="link">browse<input type="file" accept=".txt,text/plain" hidden onChange={e => e.target.files?.[0] && onFile(e.target.files[0])} /></label></div>
-            <small>WhatsApp → open chat → ⋮ → More → Export chat → Without media</small>
-          </div>
-          <details className="paste">
-            <summary>…or paste chat text (Slack, Discord, Teams, anything as <code>Name: message</code>)</summary>
+            <h2>Drop your<br />chat export <Arrow dir="diag" /></h2>
+            <div className="split-cap">
+              <p>WhatsApp → open a chat → ⋮ → More → Export chat → Without media.</p>
+              <p>Drag the .txt file here, or browse your files.</p>
+            </div>
+            <label className="rule-row as-label">
+              <span>Browse files</span><Arrow />
+              <input type="file" accept=".txt,text/plain" hidden onChange={e => e.target.files?.[0] && onFile(e.target.files[0])} />
+            </label>
+            <CardFoot n={2} />
+          </section>
+
+          <section className="card screen-deep">
+            <h2>Paste any<br />chat <Arrow dir="diag" /></h2>
+            <div className="band"><span>Formats</span><span>Supported</span></div>
+            <table className="spec">
+              <tbody>
+                <tr><td>WhatsApp</td><td>Android &amp; iOS export</td></tr>
+                <tr><td>Slack</td><td>Copied thread</td></tr>
+                <tr><td>Discord</td><td>Copied channel</td></tr>
+                <tr><td>Teams</td><td>Copied chat</td></tr>
+                <tr><td>Anything</td><td>Name: message</td></tr>
+              </tbody>
+            </table>
             <textarea value={paste} onChange={e => setPaste(e.target.value)} placeholder={'Ananya: @Shashwat can you send the deck by 5pm?\nRohan: venue is final, main auditorium'} />
-            <button className="primary" disabled={!paste.trim()} onClick={() => open(paste, 'Pasted chat')}>Analyze</button>
-          </details>
-          <div className="features">
-            <div><b>🎯 Prioritized</b><span>Urgent / Relevant / FYI scoring on every message</span></div>
-            <div><b>📌 Never miss a mention</b><span>@mentions, questions to you, tasks with your name</span></div>
-            <div><b>⏰ Deadline radar</b><span>"by Friday 6pm" → a real date, sorted soonest first</span></div>
-            <div><b>🧠 Private AI</b><span>LLM runs in your browser via WebGPU. Works offline.</span></div>
-          </div>
-        </main>
+            <CardFoot n={3}>
+              <button className="details" disabled={!paste.trim()} onClick={() => open(paste, 'Pasted chat')}>Analyze <span className="circ solid"><Arrow /></span></button>
+            </CardFoot>
+          </section>
+
+          <section className="card screen-ember">
+            <h2>Private by<br />design <Arrow dir="diag" /></h2>
+            <div className="split-cap">
+              <p>No server, no API keys and no tracking. The LLM runs in your browser through WebGPU.</p>
+              <p>The model is cached once, then everything works with Wi-Fi off.</p>
+            </div>
+            <div className="boxed">
+              <div className="box-tabs"><span className="on">Bytes uploaded</span><span>Servers</span><span>Trackers</span></div>
+              <small>Your chat data sent anywhere</small>
+              <div className="giant">0</div>
+            </div>
+            <CardFoot n={4} />
+          </section>
+        </div>
+        <footer>Built local-first · No servers · No tracking · Your chat stays in this tab</footer>
       </div>
     )
   }
@@ -187,13 +250,15 @@ export default function App() {
   a.scored.filter(s => s.msg.author !== me).forEach(s => groups[s.priority].push(s))
   groups.urgent.sort((x, y) => y.score - x.score)
   const lastRead = msgs[Math.max(0, sinceIdx - 1)]
+  const upcoming = a.deadlines.filter(s => s.deadline!.getTime() >= a.now.getTime())
+  const nextDue = upcoming[0]
 
-  const card = (s: Scored) => (
+  const item = (s: Scored) => (
     <div key={s.msg.id} className={`item ${s.priority}`}>
       <div className="item-head">
-        <b>{s.msg.author}</b>
+        <span className="who">{s.msg.author}</span>
         <span className="time">{fmtTime(s.msg.ts)}</span>
-        <button className="jump" onClick={() => jump(s.msg.id)}>view in chat ↗</button>
+        <button className="jump" onClick={() => jump(s.msg.id)}>View <Arrow dir="diag" /></button>
       </div>
       <div className="item-text">{highlight(s.msg.text, me)}</div>
       {s.flags.length > 0 && <div className="chips">{s.flags.map((f, i) => <span key={i} className={`chip ${f.kind}`}>{f.label}</span>)}</div>}
@@ -201,150 +266,185 @@ export default function App() {
   )
 
   return (
-    <div className="dash">
-      <header className="topbar">
-        <div className="logo" onClick={() => setRaw(null)} role="button">👀 What Did I Miss?</div>
-        <div className="chatname">💬 {chatName}</div>
-        <label className="me">I am
-          <select value={me} onChange={e => { setMe(e.target.value); setSummary(''); if (llm === 'done') setLlm('ready') }}>
-            {people.map(p => <option key={p}>{p}</option>)}
-          </select>
-        </label>
-        {badge}
-        <button className="ghost" onClick={() => setRaw(null)}>New chat</button>
+    <div className="page">
+      <header className="nav">
+        {brand}
+        <div className="nav-right">
+          {badge}
+          <label className="me">I am
+            <select value={me} onChange={e => { setMe(e.target.value); resetSummary() }}>
+              {people.map(p => <option key={p}>{p}</option>)}
+            </select>
+          </label>
+          <button className="menu" onClick={() => setRaw(null)}><i /><i />NEW CHAT</button>
+        </div>
       </header>
 
-      <section className="since">
-        <div className="since-label">
-          <b>Last read:</b> {lastRead ? `${lastRead.author} at ${fmtTime(lastRead.ts)}` : 'nothing'} · away <b>{fmtDuration(a.now.getTime() - (lastRead?.ts.getTime() ?? a.now.getTime()))}</b>
+      <section className="card screen-mist overview">
+        <div className="ov-left">
+          <h1 className="ov-title">You missed<br />{a.stats.unread} messages</h1>
+          <p className="caption">{chatName} · away {fmtDuration(a.now.getTime() - (lastRead?.ts.getTime() ?? a.now.getTime()))}<br />Last read: {lastRead ? `${lastRead.author} at ${fmtTime(lastRead.ts)}` : 'nothing'}</p>
+          <div className="since">
+            <div className="rule-label"><span>Since you left</span><span>Drag to change</span></div>
+            <input type="range" min={0} max={msgs.length - 1} value={sinceIdx} onChange={e => { setSinceIdx(+e.target.value); resetSummary() }} />
+          </div>
         </div>
-        <input type="range" min={0} max={msgs.length - 1} value={sinceIdx} onChange={e => { setSinceIdx(+e.target.value); setSummary(''); if (llm === 'done') setLlm('ready') }} />
-      </section>
-
-      <section className="stats">
-        <div><b>{a.stats.unread}</b><span>unread</span></div>
-        <div className="s-urgent"><b>{a.stats.urgent}</b><span>urgent</span></div>
-        <div className="s-mention"><b>{a.stats.mentions}</b><span>mention you</span></div>
-        <div className="s-deadline"><b>{a.stats.deadlines}</b><span>deadlines</span></div>
-        <div className="s-action"><b>{myTodos.length}</b><span>tasks for you</span></div>
-        <div className="s-saved"><b>~{a.stats.minutesSaved}m</b><span>reading saved</span></div>
+        <div className="ov-right">
+          <div className="metric"><span className="m-label">Urgent <span className="circ"><Arrow dir="up" /></span></span><span className="m-val">{a.stats.urgent}<small>items</small></span></div>
+          <div className="metric"><span className="m-label">Mention you <span className="circ"><Arrow dir="diag" /></span></span><span className="m-val">{a.stats.mentions}<small>times</small></span></div>
+          <div className="metric"><span className="m-label">Tasks for you <span className="circ"><Arrow dir="down" /></span></span><span className="m-val">{myTodos.length}<small>to-dos</small></span></div>
+          <div className="metric"><span className="m-label">Reading saved <span className="circ"><Arrow /></span></span><span className="m-val">~{a.stats.minutesSaved}<small>min</small></span></div>
+        </div>
       </section>
 
       <nav className="tabs">
         <button className={tab === 'brief' ? 'on' : ''} onClick={() => setTab('brief')}>Briefing</button>
-        <button className={tab === 'chat' ? 'on' : ''} onClick={() => setTab('chat')}>Full chat ({msgs.length})</button>
+        <button className={tab === 'chat' ? 'on' : ''} onClick={() => setTab('chat')}>Full chat</button>
+        <span className="tab-meta">{msgs.length} messages · {a.stats.deadlines} deadlines · {a.decisions.length} decisions</span>
       </nav>
 
       {tab === 'brief' ? (
         <div className="grid">
-          <div className="col">
-            <section className="panel ai">
-              <div className="panel-head">
-                <h3>🧠 AI catch-up <small>on-device LLM</small></h3>
-                {(llm === 'idle' || llm === 'ready' || llm === 'done' || llm === 'error') && (
-                  <div className="ai-controls">
-                    <select value={modelId} onChange={e => setModelId(e.target.value)} disabled={llm === 'ready' || llm === 'done'}>
-                      {MODELS.map(m => <option key={m.id} value={m.id}>{m.label}</option>)}
-                    </select>
-                    <button className="primary" onClick={runAI}>{llm === 'done' ? '↻ Regenerate' : '✨ Summarize'}</button>
-                  </div>
-                )}
-                {llm === 'generating' && <button className="ghost" onClick={() => (cancel.current.cancelled = true)}>Stop</button>}
-              </div>
+          <section className="card screen-deep ai">
+            <h2>AI catch-up <Arrow dir="diag" /></h2>
+            <div className="band"><span>On-device LLM</span><span>{MODELS.find(m => m.id === modelId)?.label.split(' (')[0]}</span></div>
 
-              {llm === 'unsupported' && <p className="muted">This browser has no WebGPU, so the on-device LLM is unavailable. Everything below still works offline using the local rule engine. Try Chrome or Edge on desktop for the AI summary.</p>}
-              {llm === 'idle' && !summary && <p className="muted">{cached ? '✅ Model is cached on this device and works offline. ' : 'First run downloads the model once (cached afterwards, then it works offline). '}Your messages are processed by a language model running in this tab through WebGPU. No server, no API calls.</p>}
-              {llm === 'loading' && (
-                <div className="progress">
-                  <div className="bar"><div style={{ width: `${progress.pct}%` }} /></div>
-                  <small>{progress.text || 'Starting…'}</small>
-                </div>
+            {llm === 'unsupported' && <p className="note">This browser has no WebGPU, so the on-device LLM is unavailable. Everything else still works offline using the local rule engine. Use desktop Chrome or Edge for the AI summary.</p>}
+            {llm === 'idle' && !summary && <p className="note">{cached ? 'Model cached on this device · works offline. ' : 'First run downloads the model once, then it is cached and works offline. '}A language model runs inside this tab through WebGPU. No server, no API calls.</p>}
+            {llm === 'loading' && (
+              <div className="progress">
+                <div className="bar"><div style={{ width: `${progress.pct}%` }} /></div>
+                <small>{progress.text || 'Starting…'}</small>
+              </div>
+            )}
+            {llm === 'error' && <p className="note err">{progress.text}</p>}
+            {summary && <Markdown text={summary} />}
+            {llm === 'generating' && <span className="cursor">▍</span>}
+            {llm === 'done' && <p className="note">Generated on your device in {(genMs / 1000).toFixed(1)}s</p>}
+
+            <CardFoot n={1}>
+              {(llm === 'idle' || llm === 'ready' || llm === 'done' || llm === 'error') && (
+                <>
+                  <select className="model" value={modelId} onChange={e => setModelId(e.target.value)} disabled={llm === 'ready' || llm === 'done'}>
+                    {MODELS.map(m => <option key={m.id} value={m.id}>{m.label}</option>)}
+                  </select>
+                  <button className="details" onClick={runAI}>{llm === 'done' ? 'Regenerate' : 'Summarize'} <span className="circ solid"><Arrow /></span></button>
+                </>
               )}
-              {llm === 'error' && <p className="err">⚠️ {progress.text}</p>}
-              {summary && <Markdown text={summary} />}
-              {llm === 'generating' && <span className="cursor">▍</span>}
-              {llm === 'done' && <small className="muted">Generated on your device in {(genMs / 1000).toFixed(1)}s · {MODELS.find(m => m.id === modelId)?.label.split(' (')[0]}</small>}
-            </section>
+              {llm === 'loading' && <span className="foot-text">Loading model · {progress.pct}%</span>}
+              {llm === 'generating' && <button className="details" onClick={() => (cancel.current.cancelled = true)}>Stop <span className="circ solid">■</span></button>}
+            </CardFoot>
+          </section>
 
-            <section className="panel">
-              <div className="panel-head"><h3>📥 Priority inbox</h3></div>
-              {(['urgent', 'relevant'] as Priority[]).map(p => groups[p].length > 0 && (
-                <div key={p} className="group">
-                  <h5>{PRIORITY_META[p].dot} {PRIORITY_META[p].label} <span>{groups[p].length}</span></h5>
-                  {groups[p].map(card)}
-                </div>
-              ))}
-              <div className="group">
-                <h5 className="toggle" onClick={() => setShowFyi(!showFyi)}>{PRIORITY_META.fyi.dot} FYI / chatter <span>{groups.fyi.length}</span> <small>{showFyi ? 'hide' : 'show'}</small></h5>
-                {showFyi && groups.fyi.map(card)}
-              </div>
-            </section>
-          </div>
-
-          <div className="col side">
-            <section className="panel">
-              <div className="panel-head"><h3>✅ Your to-dos</h3></div>
-              {myTodos.length === 0 && <p className="muted">Nothing assigned to you 🎉</p>}
+          <section className="card screen-ember todos">
+            <h2>Your to-dos <Arrow dir="diag" /></h2>
+            <div className="split-cap">
+              <p>Tasks where someone named you or asked you directly.</p>
+              <p>{nextDue ? `Next deadline ${fmtWhen(nextDue.deadline!, a.now).split(' · ')[1]}.` : 'No deadlines spotted.'}</p>
+            </div>
+            <div className="list">
+              {myTodos.length === 0 && <p className="note">Nothing assigned to you.</p>}
               {myTodos.map(s => (
                 <label key={s.msg.id} className={`todo ${done.has(s.msg.id) ? 'done' : ''}`}>
                   <input type="checkbox" checked={done.has(s.msg.id)} onChange={() => setDone(d => { const n = new Set(d); n.has(s.msg.id) ? n.delete(s.msg.id) : n.add(s.msg.id); return n })} />
                   <div>
-                    <div>{s.msg.text}</div>
-                    <small>from {s.msg.author}{s.deadline && <> · <b className="due">⏰ {fmtWhen(s.deadline, a.now)}</b></>} · <a onClick={() => jump(s.msg.id)}>view</a></small>
+                    <div className="todo-text">{s.msg.text}</div>
+                    <small>{s.msg.author}{s.deadline && <> · <b>{fmtWhen(s.deadline, a.now)}</b></>} · <a onClick={() => jump(s.msg.id)}>view</a></small>
                   </div>
                 </label>
               ))}
+            </div>
+            <CardFoot n={2}><span className="foot-text">{done.size} of {myTodos.length} done</span></CardFoot>
+          </section>
+
+          <section className="card screen-mist inbox">
+            <h2>Priority inbox <Arrow dir="diag" /></h2>
+            {(['urgent', 'relevant'] as Priority[]).map(p => groups[p].length > 0 && (
+              <div key={p} className="group">
+                <div className="rule-label"><span>{PRIORITY_LABEL[p]}</span><span>{groups[p].length}</span></div>
+                {groups[p].map(item)}
+              </div>
+            ))}
+            {showFyi && (
+              <div className="group">
+                <div className="rule-label"><span>{PRIORITY_LABEL.fyi}</span><span>{groups.fyi.length}</span></div>
+                {groups.fyi.map(item)}
+              </div>
+            )}
+            <CardFoot n={3}>
+              <button className="details" onClick={() => setShowFyi(!showFyi)}>{showFyi ? 'Hide' : 'Show'} {groups.fyi.length} FYI <span className="circ solid"><Arrow dir={showFyi ? 'up' : 'down'} /></span></button>
+            </CardFoot>
+          </section>
+
+          <div className="stack">
+            <section className="card screen-deep">
+              <h2>Deadlines <Arrow dir="diag" /></h2>
+              <div className="band"><span>When</span><span>What</span></div>
+              <table className="spec clickable">
+                <tbody>
+                  {upcoming.length === 0 && <tr><td colSpan={2}>No upcoming deadlines.</td></tr>}
+                  {upcoming.map(s => (
+                    <tr key={s.msg.id} onClick={() => jump(s.msg.id)}>
+                      <td className={`when ${s.deadline!.getTime() - a.now.getTime() < 86400000 ? 'soon' : ''}`}>{fmtWhen(s.deadline!, a.now).replace(' · ', '\n')}</td>
+                      <td>{s.msg.text.slice(0, 90)}{s.msg.text.length > 90 ? '…' : ''}</td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+              <CardFoot n={4}>{nextDue && <span className="foot-text">Next {fmtWhen(nextDue.deadline!, a.now).split(' · ')[1]}</span>}</CardFoot>
             </section>
 
-            <section className="panel">
-              <div className="panel-head"><h3>⏰ Deadlines</h3></div>
-              {a.deadlines.length === 0 && <p className="muted">No deadlines spotted.</p>}
-              {a.deadlines.map(s => (
-                <div key={s.msg.id} className="row" onClick={() => jump(s.msg.id)}>
-                  <span className={`when ${s.deadline!.getTime() - a.now.getTime() < 86400000 ? 'soon' : ''}`}>{fmtWhen(s.deadline!, a.now)}</span>
-                  <span className="what">{s.msg.text.slice(0, 110)}{s.msg.text.length > 110 ? '…' : ''}</span>
-                </div>
-              ))}
+            <section className="card screen-cream">
+              <h2>Decisions <Arrow dir="diag" /></h2>
+              <table className="spec clickable">
+                <tbody>
+                  {a.decisions.length === 0 && <tr><td colSpan={2}>No decisions spotted.</td></tr>}
+                  {a.decisions.map(s => (
+                    <tr key={s.msg.id} onClick={() => jump(s.msg.id)}>
+                      <td className="who">{s.msg.author}<br /><small>{fmtTime(s.msg.ts)}</small></td>
+                      <td>{s.msg.text}</td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+              <CardFoot n={5} />
             </section>
 
-            <section className="panel">
-              <div className="panel-head"><h3>🏁 Decisions</h3></div>
-              {a.decisions.length === 0 && <p className="muted">No decisions spotted.</p>}
-              {a.decisions.map(s => (
-                <div key={s.msg.id} className="row" onClick={() => jump(s.msg.id)}>
-                  <span className="who">{s.msg.author} · {fmtTime(s.msg.ts)}</span>
-                  <span className="what">{s.msg.text}</span>
-                </div>
-              ))}
-            </section>
-
-            <section className="panel">
-              <div className="panel-head"><h3>👥 Others' tasks</h3></div>
-              {otherTodos.length === 0 && <p className="muted">None.</p>}
-              {otherTodos.map(s => (
-                <div key={s.msg.id} className="row" onClick={() => jump(s.msg.id)}>
-                  <span className="who">{s.owner ?? 'Unassigned'}</span>
-                  <span className="what">{s.msg.text.slice(0, 110)}{s.msg.text.length > 110 ? '…' : ''}</span>
-                </div>
-              ))}
+            <section className="card screen-mist">
+              <h2>Others' tasks <Arrow dir="diag" /></h2>
+              <table className="spec clickable">
+                <tbody>
+                  {otherTodos.length === 0 && <tr><td colSpan={2}>None.</td></tr>}
+                  {otherTodos.map(s => (
+                    <tr key={s.msg.id} onClick={() => jump(s.msg.id)}>
+                      <td className="who">{s.owner ?? 'Unassigned'}</td>
+                      <td>{s.msg.text.slice(0, 100)}{s.msg.text.length > 100 ? '…' : ''}</td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+              <CardFoot n={6} />
             </section>
           </div>
         </div>
       ) : (
-        <section className="panel chat">
-          {msgs.map((m, i) => {
-            const s = i >= sinceIdx ? a.scored[i - sinceIdx] : undefined
-            return (
-              <div key={m.id}>
-                {i === sinceIdx && <div className="unread-line">— {msgs.length - sinceIdx} unread messages —</div>}
-                <div id={`m${m.id}`} className={`bubble ${m.author === me ? 'mine' : ''} ${s ? s.priority : 'read'} ${flashId === m.id ? 'flash' : ''}`}>
-                  <div className="b-head"><b>{m.author}</b><span>{fmtTime(m.ts)}</span></div>
-                  <div>{highlight(m.text, me)}</div>
-                  {s && s.flags.length > 0 && <div className="chips">{s.flags.map((f, k) => <span key={k} className={`chip ${f.kind}`}>{f.label}</span>)}</div>}
+        <section className="card screen-mist chat">
+          <div className="chat-scroll">
+            {msgs.map((m, i) => {
+              const s = i >= sinceIdx ? a.scored[i - sinceIdx] : undefined
+              return (
+                <div key={m.id}>
+                  {i === sinceIdx && <div className="unread-line"><span>{msgs.length - sinceIdx} unread</span></div>}
+                  <div id={`m${m.id}`} className={`bubble ${m.author === me ? 'mine' : ''} ${s ? s.priority : 'read'} ${flashId === m.id ? 'flash' : ''}`}>
+                    <div className="b-head"><b>{m.author}</b><span>{fmtTime(m.ts)}</span></div>
+                    <div>{highlight(m.text, me)}</div>
+                    {s && s.flags.length > 0 && <div className="chips">{s.flags.map((f, k) => <span key={k} className={`chip ${f.kind}`}>{f.label}</span>)}</div>}
+                  </div>
                 </div>
-              </div>
-            )
-          })}
+              )
+            })}
+          </div>
+          <CardFoot n={7}><button className="details" onClick={() => setTab('brief')}>Back to briefing <span className="circ solid"><Arrow /></span></button></CardFoot>
         </section>
       )}
       <footer>Built local-first · No servers · No tracking · Your chat stays in this tab</footer>
