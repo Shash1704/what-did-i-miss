@@ -1,5 +1,6 @@
 import * as chrono from 'chrono-node'
 import type { Message } from './parser'
+import { displayName, isMe, mentionPattern } from './identity'
 
 export type Priority = 'urgent' | 'relevant' | 'fyi'
 
@@ -65,18 +66,19 @@ export function fmtWhen(d: Date, now: Date): string {
   return `${day} ${time} · ${diff >= 0 ? `in ${rel}` : `${rel} ago`}`
 }
 
-export function analyze(all: Message[], me: string, sinceIdx: number, people: string[]): Analysis {
+/** `identity` is free text: "Shashwat, Shash, 9198…" (see lib/identity.ts). */
+export function analyze(all: Message[], identity: string, sinceIdx: number, people: string[]): Analysis {
   const now = all.length ? all[all.length - 1].ts : new Date()
   const unread = all.slice(sinceIdx)
-  const first = me.split(/\s+/)[0]
-  const meRe = new RegExp(`(@\\s?${escapeRe(first)}|\\b${escapeRe(first)}\\b)`, 'i')
-  const others = people.filter(p => p !== me)
+  const me = displayName(identity)
+  const meRe = new RegExp(`(${mentionPattern(identity)})`, 'i')
+  const others = people.filter(p => !isMe(p, identity))
 
   const scored: Scored[] = unread.map(msg => {
     const flags: Flag[] = []
     let score = 0
     const t = msg.text
-    const fromMe = msg.author === me
+    const fromMe = isMe(msg.author, identity)
     const mentionsMe = !fromMe && meRe.test(t)
     const everyone = EVERYONE.test(t)
 

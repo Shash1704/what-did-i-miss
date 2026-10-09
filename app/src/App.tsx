@@ -6,6 +6,7 @@ import { buildDemoChat, DEMO_ME, DEMO_LAST_READ, DEMO_NAME } from './data/demo'
 import { readChatFile, takeSharedChat } from './lib/importFile'
 import { cleanTitle, deadlineCalendar, hotTopics, hueFor, initials } from './lib/insights'
 import ActivityChart from './components/ActivityChart'
+import { displayName, isMe, mentionPattern, nameSuggestions } from './lib/identity'
 import './App.css'
 
 interface InstallPrompt extends Event { prompt: () => Promise<void> }
@@ -105,9 +106,8 @@ function Prose({ text }: { text: string }) {
   return <p className="prose">{clean.split(re).map((p, i) => (i % 2 ? <b key={i}>{p}</b> : p))}</p>
 }
 
-function highlight(text: string, me: string, query = '') {
-  const first = me.split(/\s+/)[0]
-  const parts = [`@?${escapeRe(first)}\\b`, '@everyone']
+function highlight(text: string, identity: string, query = '') {
+  const parts = [mentionPattern(identity), '@everyone']
   if (query.trim()) parts.push(escapeRe(query.trim()))
   const re = new RegExp(`(${parts.join('|')})`, 'gi')
   return text.split(re).map((p, i) => (i % 2 ? <mark key={i}>{p}</mark> : p))
@@ -125,6 +125,8 @@ export default function App() {
     try { return !localStorage.getItem('wdim-intro-seen') } catch { return true }
   })
   const [showPaste, setShowPaste] = useState(false)
+  const [showWho, setShowWho] = useState(false)
+  const [whoDraft, setWhoDraft] = useState('')
   const [view, setView] = useState<View>('brief')
   const [query, setQuery] = useState('')
   const [paste, setPaste] = useState('')
@@ -157,7 +159,9 @@ export default function App() {
 
   const msgs: Message[] = useMemo(() => (raw ? parseChat(raw) : []), [raw])
   const people = useMemo(() => participants(msgs), [msgs])
-  const a = useMemo(() => (msgs.length && me ? analyze(msgs, me, sinceIdx, people) : null), [msgs, me, sinceIdx, people])
+  const a = useMemo(() => (msgs.length ? analyze(msgs, me, sinceIdx, people) : null), [msgs, me, sinceIdx, people])
+  const myName = displayName(me)
+  const suggestions = useMemo(() => nameSuggestions(people, msgs.map(m => m.text)), [people, msgs])
 
   useEffect(() => { isCached(modelId).then(setCached) }, [modelId, llm])
 
@@ -175,9 +179,11 @@ export default function App() {
     setIsDemo(demo)
     if (!demo) closeIntro()
     let remembered: string | null = null
-    try { remembered = localStorage.getItem('wdim-me') } catch { /* storage unavailable */ }
-    const who = meGuess && ppl.includes(meGuess) ? meGuess : remembered && ppl.includes(remembered) ? remembered : ppl[0]
+    try { remembered = localStorage.getItem('wdim-identity') } catch { /* storage unavailable */ }
+    // Your identity is free text and needn't be a poster in this chat; ask once if we don't know it
+    const who = meGuess && ppl.includes(meGuess) ? meGuess : remembered ?? ''
     setMe(who)
+    if (!demo && !remembered) { setWhoDraft(''); setShowWho(true) }
     setSinceIdx(lastRead ?? defaultSince(parsed, who))
     setDone(new Set())
     setView('brief')
@@ -188,7 +194,7 @@ export default function App() {
 
   // You've read everything up to your own last message; fall back to the last 80% if you never spoke
   function defaultSince(list: Message[], who: string) {
-    for (let i = list.length - 1; i >= 0; i--) if (list[i].author === who) return Math.min(i + 1, list.length - 1)
+    for (let i = list.length - 1; i >= 0; i--) if (isMe(list[i].author, who)) return Math.min(i + 1, list.length - 1)
     return Math.floor(list.length * 0.2)
   }
 
@@ -207,7 +213,7 @@ export default function App() {
       setLlm('generating')
       setSummary('')
       const t0 = performance.now()
-      await summarize(a, me, setSummary, cancel.current)
+      await summarize(a, myName, setSummary, cancel.current)
       setGenMs(performance.now() - t0)
       setLlm('done')
     } catch (e) {
@@ -244,7 +250,23 @@ export default function App() {
     return () => window.removeEventListener('keydown', onKey)
   }, [showIntro])
   const loaded = !!a
-  const openTasks = a ? a.actions.filter(s => s.owner === me && !done.has(s.msg.id)).length : 0
+  const openTasks = a ? a.actions.filter(s => s.owner === myName && !done.has(s.msg.id)).length : 0
+
+  function saveWho() {
+    const v = whoDraft.split(',').map(x => x.trim()).filter(Boolean).join(', ')
+    if (!v) return
+    setMe(v)
+    if (!isDemo) {
+      setSinceIdx(defaultSince(msgs, v))
+      try { localStorage.setItem('wdim-identity', v) } catch { /* storage unavailable */ }
+    }
+    resetSummary()
+    setShowWho(false)
+  }
+  const addAlias = (n: string) => setWhoDraft(d => {
+    const list = d.split(',').map(x => x.trim()).filter(Boolean)
+    return list.some(x => x.toLowerCase() === n.toLowerCase()) ? d : [...list, n].join(', ')
+  })
 
   // ---------------- shell ----------------
   const sidebar = (
@@ -296,13 +318,34 @@ export default function App() {
           </button>
         )}
         {a ? (
-          <label className="me" title="Who are you in this chat?">
-            <Avatar name={me} size={38} />
-            <select value={me} onChange={e => { setMe(e.target.value); if (!isDemo) setSinceIdx(defaultSince(msgs, e.target.value)); resetSummary(); try { localStorage.setItem('wdim-me', e.target.value) } catch { /* storage unavailable */ } }}>
-              {people.map(p => <option key={p}>{p}</option>)}
-            </select>
-          </label>
+          <button className="me" title={`You are: ${me || 'not set'} (click to change)`} onClick={() => { setWhoDraft(me); setShowWho(!showWho) }}>
+            <Avatar name={myName} size={38} />
+          </button>
         ) : <span className="avatar ghost">?</span>}
+        {showWho && <div className="who-backdrop" onClick={() => setShowWho(false)} />}
+        {showWho && (
+          <div className="who-pop" role="dialog" aria-label="Who are you?">
+            <h4>Who are you in this chat?</h4>
+            <p>We use this to find your mentions, questions and tasks. You don't need to have posted in the group. Saved on this device only.</p>
+            <input
+              autoFocus
+              value={whoDraft}
+              onChange={e => setWhoDraft(e.target.value)}
+              onKeyDown={e => { if (e.key === 'Enter') saveWho(); if (e.key === 'Escape') setShowWho(false) }}
+              placeholder="e.g. Shashwat, Shash, 98765 43210"
+            />
+            {suggestions.length > 0 && (
+              <div className="who-suggest">
+                {suggestions.slice(0, 12).map(n => <button key={n} onClick={() => addAlias(n)}>{n}</button>)}
+              </div>
+            )}
+            <small>Add nicknames or your phone number, separated by commas. WhatsApp often @mentions unsaved contacts by number.</small>
+            <div className="who-actions">
+              <button className="btn-ghost" onClick={() => setShowWho(false)}>Cancel</button>
+              <button className="btn-orange" disabled={!whoDraft.trim()} onClick={saveWho}>Save</button>
+            </div>
+          </div>
+        )}
       </div>
     </header>
   )
@@ -348,10 +391,10 @@ export default function App() {
 
   // ---------------- Dashboard ----------------
   if (!a) return null
-  const myTodos = a.actions.filter(s => s.owner === me)
-  const otherTodos = a.actions.filter(s => s.owner !== me)
-  const inbox = a.scored.filter(s => s.msg.author !== me && s.priority !== 'fyi').sort((x, y) => y.score - x.score)
-  const fyi = a.scored.filter(s => s.msg.author !== me && s.priority === 'fyi')
+  const myTodos = a.actions.filter(s => s.owner === myName)
+  const otherTodos = a.actions.filter(s => s.owner !== myName)
+  const inbox = a.scored.filter(s => !isMe(s.msg.author, me) && s.priority !== 'fyi').sort((x, y) => y.score - x.score)
+  const fyi = a.scored.filter(s => !isMe(s.msg.author, me) && s.priority === 'fyi')
   const lastRead = msgs[Math.max(0, sinceIdx - 1)]
   const cal = deadlineCalendar(a)
   const topics = hotTopics(a, people)
@@ -466,8 +509,8 @@ export default function App() {
                   return (
                     <div key={m.id}>
                       {!searchResults && i === sinceIdx && <div className="unread-line"><span>{msgs.length - sinceIdx} unread</span></div>}
-                      <div id={`m${m.id}`} className={`bubble ${m.author === me ? 'mine' : ''} ${s ? s.priority : 'read'} ${flashId === m.id ? 'flash' : ''} ${searchResults ? 'clickable' : ''}`} onClick={() => { if (searchResults) jump(m.id) }}>
-                        {m.author !== me && <Avatar name={m.author} size={28} />}
+                      <div id={`m${m.id}`} className={`bubble ${isMe(m.author, me) ? 'mine' : ''} ${s ? s.priority : 'read'} ${flashId === m.id ? 'flash' : ''} ${searchResults ? 'clickable' : ''}`} onClick={() => { if (searchResults) jump(m.id) }}>
+                        {!isMe(m.author, me) && <Avatar name={m.author} size={28} />}
                         <div className="b-body">
                           <div className="b-head"><b>{m.author}</b><span>{fmtTime(m.ts)}</span></div>
                           <div>{highlight(m.text, me, query)}</div>
@@ -568,7 +611,7 @@ export default function App() {
                       {cal.chips.map(({ s, col, top }) => (
                         <button
                           key={s.msg.id}
-                          className={`event ${s.owner === me ? 'mine' : ''} ${done.has(s.msg.id) ? 'done' : ''}`}
+                          className={`event ${s.owner === myName ? 'mine' : ''} ${done.has(s.msg.id) ? 'done' : ''}`}
                           style={{ left: `calc(${Math.min(col, cal.days.length - 2) * (100 / cal.days.length)}% + 4px)`, top: `${top}%` }}
                           onClick={() => jump(s.msg.id)}
                           title={s.msg.text}
