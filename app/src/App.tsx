@@ -6,6 +6,7 @@ import { buildDemoChat, DEMO_ME, DEMO_LAST_READ, DEMO_NAME } from './data/demo'
 import { readChatFile, takeSharedChat, type ChatSource, type LoadedChat } from './lib/importFile'
 import { cleanTitle, deadlineCalendar, hotTopics, hueFor, initials } from './lib/insights'
 import ActivityChart from './components/ActivityChart'
+import { chatMessages, connectBot, listChats, loadStore, pollOnce, saveStore, type LiveChatInfo, type TgStore } from './lib/telegramBot'
 import { displayName, isMe, mentionPattern, nameSuggestions } from './lib/identity'
 import './App.css'
 
@@ -23,7 +24,7 @@ function useInstallPrompt() {
   return evt ? () => evt.prompt().finally(() => setEvt(null)) : null
 }
 
-const SOURCE_LABEL: Record<string, string> = { demo: 'Demo', whatsapp: 'WhatsApp', telegram: 'Telegram', text: 'Pasted' }
+const SOURCE_LABEL: Record<string, string> = { demo: 'Demo', whatsapp: 'WhatsApp', telegram: 'Telegram', 'telegram-live': 'Telegram live', text: 'Pasted' }
 
 type LlmState = 'idle' | 'loading' | 'ready' | 'generating' | 'done' | 'error' | 'unsupported'
 type View = 'brief' | 'insights' | 'chat'
@@ -64,6 +65,7 @@ const ICONS = {
   edit: 'M4 20h4L19 9l-4-4L4 16zM13 7l4 4',
   arrow: 'M7 17L17 7M9 7h8v8',
   sparkle: 'M12 3l2 6 6 2-6 2-2 6-2-6-6-2 6-2z',
+  send: 'M21 3L3 10.5l7 2.5 2.5 7L21 3zM10 13l5-5',
   chart: 'M4 20V11M10 20V5M16 20v-7M21 20H3',
 }
 function Icon({ name, size = 20 }: { name: keyof typeof ICONS; size?: number }) {
@@ -129,6 +131,69 @@ export default function App() {
   })
   const [showPaste, setShowPaste] = useState(false)
   const [showWho, setShowWho] = useState(false)
+
+  // ---- Live Telegram (user's own bot; browser ↔ api.telegram.org only) ----
+  const tgRef = useRef<TgStore | null>(loadStore())
+  const [tgToken, setTgToken] = useState(tgRef.current?.token ?? '')
+  const [tgStatus, setTgStatus] = useState<'off' | 'connecting' | 'live' | 'error'>(tgRef.current ? 'connecting' : 'off')
+  const [tgError, setTgError] = useState('')
+  const [tgChats, setTgChats] = useState<LiveChatInfo[]>(tgRef.current ? listChats(tgRef.current) : [])
+  const [showTg, setShowTg] = useState(false)
+  const [tgDraft, setTgDraft] = useState('')
+  const liveChatRef = useRef<string | null>(null)
+
+  useEffect(() => {
+    if (!tgToken || !tgRef.current) return
+    const store = tgRef.current
+    const ctrl = new AbortController()
+    let stopped = false
+    ;(async () => {
+      while (!stopped) {
+        try {
+          const changed = await pollOnce(store, ctrl.signal)
+          saveStore(store)
+          setTgStatus('live'); setTgError('')
+          if (changed.length) setTgChats(listChats(store))
+          const live = liveChatRef.current
+          if (live && changed.includes(live)) setMsgs(chatMessages(store, live))
+        } catch (err) {
+          if (stopped) break
+          setTgStatus('error'); setTgError((err as Error).message)
+          await new Promise(r => setTimeout(r, 5000))
+        }
+      }
+    })()
+    return () => { stopped = true; ctrl.abort() }
+  }, [tgToken])
+
+  async function connectTelegram() {
+    const token = tgDraft.trim()
+    if (!token) return
+    setTgStatus('connecting'); setTgError('')
+    try {
+      const store = await connectBot(token)
+      tgRef.current = store
+      saveStore(store)
+      setTgChats(listChats(store))
+      setTgDraft('')
+      setTgToken(token)
+    } catch (err) {
+      setTgStatus('error'); setTgError((err as Error).message)
+    }
+  }
+  function disconnectTelegram() {
+    saveStore(null)
+    tgRef.current = null
+    liveChatRef.current = null
+    setTgToken(''); setTgChats([]); setTgStatus('off'); setTgError('')
+  }
+  function openLiveChat(id: string) {
+    const store = tgRef.current
+    if (!store) return
+    open({ name: store.chats[id]?.title ?? 'Telegram chat', messages: chatMessages(store, id), source: 'telegram-live' })
+    liveChatRef.current = id
+    setShowTg(false)
+  }
   const [whoDraft, setWhoDraft] = useState('')
   const [view, setView] = useState<View>('brief')
   const [query, setQuery] = useState('')
@@ -184,6 +249,7 @@ export default function App() {
     const demo = chat.source === 'demo'
     if (!parsed.length) { alert("Couldn't find any messages. Use a WhatsApp or Telegram export, or paste lines like \"Name: message\"."); return }
     const ppl = participants(parsed)
+    liveChatRef.current = null
     setMsgs(parsed)
     setSource(chat.source)
     setChatName(chat.name)
@@ -312,6 +378,7 @@ export default function App() {
         <button className={view === 'chat' && loaded ? 'on' : ''} disabled={!loaded} onClick={() => setView('chat')} title="Full chat"><Icon name="chat" /></button>
         <button disabled={!loaded} onClick={() => scrollToId('deadlines', 'insights')} title="Deadlines"><Icon name="calendar" /></button>
         <button onClick={() => fileInput.current?.click()} title="Open a chat export"><Icon name="upload" /></button>
+        <button className={tgStatus === 'live' ? 'tg-live' : ''} onClick={() => setShowTg(true)} title="Connect Telegram (live)"><Icon name="send" /></button>
       </nav>
       <nav className="rail bottom">
         {install && <button onClick={install} title="Install app"><Icon name="download" /></button>}
@@ -402,6 +469,7 @@ export default function App() {
         <div className="intro-actions">
           <button className="btn-orange" onClick={() => { if (!isDemo) loadDemo(); closeIntro() }} autoFocus>Explore the demo <Icon name="arrow" size={18} /></button>
           <button className="btn-ghost" onClick={() => fileInput.current?.click()}><Icon name="upload" size={18} /> Open my chat export</button>
+          <button className="btn-link" onClick={() => { closeIntro(); setShowTg(true) }}>Connect Telegram (live)</button>
           <button className="btn-link" onClick={() => setShowPaste(!showPaste)}>{showPaste ? 'Hide paste box' : 'Paste a chat instead'}</button>
         </div>
         {showPaste && (
@@ -420,6 +488,51 @@ export default function App() {
     onDragLeave: (e: React.DragEvent) => { if (e.currentTarget === e.target) setDragging(false) },
     onDrop: (e: React.DragEvent) => { e.preventDefault(); setDragging(false); const f = e.dataTransfer.files[0]; if (f) onFile(f) },
   }
+
+  const tgModal = showTg && (
+    <div className="intro" role="dialog" aria-modal="true" aria-labelledby="tg-title" onClick={() => setShowTg(false)}>
+      <div className="intro-card tg-card" onClick={e => e.stopPropagation()}>
+        <div className="intro-glow tg" />
+        <div className="intro-badge"><span className={`tg-dot ${tgStatus}`} />{tgStatus === 'live' ? `Live · @${tgRef.current?.bot}` : tgStatus === 'connecting' ? 'Connecting…' : tgStatus === 'error' ? 'Not connected' : 'Telegram · live'}</div>
+        <h2 id="tg-title">Connect <span>Telegram</span> live</h2>
+        {!tgToken ? (
+          <>
+            <p>Use <b>your own Telegram bot</b>. Your browser talks directly to Telegram, with no server of ours in between. Telegram holds a bot's messages for up to <b>24 hours</b>, so open the app after a lecture and everything you missed is waiting.</p>
+            <ol className="tg-steps">
+              <li>In Telegram, message <b>@BotFather</b> → <code>/newbot</code> → copy the <b>token</b> it gives you.</li>
+              <li>Send BotFather <code>/setprivacy</code> → choose your bot → <b>Disable</b>, so it can read group messages.</li>
+              <li><b>Add your bot to the group</b> you want to follow.</li>
+              <li>Paste the token below.</li>
+            </ol>
+            <div className="tg-connect">
+              <input type="password" autoComplete="off" spellCheck={false} value={tgDraft} onChange={e => setTgDraft(e.target.value)} onKeyDown={e => { if (e.key === 'Enter') connectTelegram() }} placeholder="Bot token, e.g. 123456:ABC-DEF…" />
+              <button className="btn-orange" disabled={!tgDraft.trim() || tgStatus === 'connecting'} onClick={connectTelegram}>Connect</button>
+            </div>
+            {tgError && <p className="err-line">{tgError}</p>}
+            <small className="intro-tip">The token is stored only in this browser. It only sees messages sent <b>after</b> the bot joins; for older history, use a Telegram Desktop export.</small>
+          </>
+        ) : (
+          <>
+            <p>{tgStatus === 'live' ? 'Listening. New messages arrive in a few seconds.' : tgStatus === 'error' ? `Connection problem: ${tgError}. Retrying…` : 'Connecting to Telegram…'} Send a message in a group your bot is in to see it appear.</p>
+            <div className="tg-chats">
+              {tgChats.length === 0 && <div className="tg-empty">No messages yet. Add <b>@{tgRef.current?.bot}</b> to a group and say hi.</div>}
+              {tgChats.map(c => (
+                <button key={c.id} className="tg-chat" onClick={() => openLiveChat(c.id)}>
+                  <Avatar name={c.title} size={34} />
+                  <span><b>{c.title}</b><small>{c.count} message{c.count === 1 ? '' : 's'}{c.last ? ` · last ${fmtTime(new Date(c.last))}` : ''}</small></span>
+                  <Icon name="arrow" size={16} />
+                </button>
+              ))}
+            </div>
+            <div className="intro-actions">
+              <button className="btn-ghost" onClick={disconnectTelegram}>Disconnect &amp; forget</button>
+            </div>
+            <small className="intro-tip">Messages are stored only in this browser. "Disconnect" deletes the token and every stored message.</small>
+          </>
+        )}
+      </div>
+    </div>
+  )
 
   const toast = sharedNotice && <div className="toast"><span className="dot" />Received from WhatsApp · processed on this device only</div>
 
@@ -570,7 +683,7 @@ export default function App() {
             <div className="bento brief">
               <section className="tile span-8 catchup">
                 <div className="eyebrow">
-                  <span className={`pill-btn sm src-${source}`}><i className="src-dot" />{SOURCE_LABEL[source]} · {chatName}</span>
+                  <span className={`pill-btn sm src-${source}`}><i className="src-dot" />{SOURCE_LABEL[source]} · {chatName}{source === 'telegram-live' && tgStatus === 'live' ? ' ●' : ''}</span>
                   <label className="since-pill" title="What counts as missed">
                     <Icon name="calendar" size={14} />
                     <select value={sincePreset} onChange={e => applySince(e.target.value as SincePreset)}>
@@ -785,6 +898,7 @@ export default function App() {
       </div>
       {toast}
       {intro}
+      {tgModal}
       {dragging && <div className="drop-overlay"><Icon name="upload" size={40} /><b>Drop your chat export</b><small>WhatsApp .txt / .zip · Telegram result.json / messages.html · processed on this device</small></div>}
     </div>
   )

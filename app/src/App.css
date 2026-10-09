@@ -646,3 +646,35 @@ button.me:hover .avatar { box-shadow: 0 0 0 2px var(--orange); }
   .sp-range { display: none; }
   .num-tabs { gap: 14px; }
 }
+
+/* =========================================================
+   Live Telegram panel
+   ========================================================= */
+.src-telegram-live .src-dot { background: #2aabee; box-shadow: 0 0 0 3px rgba(42, 171, 238, .25); }
+.rail button.tg-live { color: #2aabee; }
+.intro-glow.tg { background: radial-gradient(circle, rgba(42, 171, 238, .45), rgba(42, 171, 238, 0) 65%); }
+.tg-card h2 span { background: linear-gradient(90deg, #6ccaff, #2aabee); -webkit-background-clip: text; background-clip: text; color: transparent; }
+.tg-dot { width: 22px; height: 22px; border-radius: 50%; background: #2aabee; opacity: .5; }
+.tg-dot.live { opacity: 1; box-shadow: 0 0 12px rgba(42, 171, 238, .8); }
+.tg-dot.error { background: var(--red); opacity: 1; }
+.tg-steps { position: relative; margin: 0 0 18px; padding-left: 20px; display: grid; gap: 8px; color: #cfc4bc; font-size: 14px; line-height: 1.5; }
+.tg-steps b { color: #fff; }
+.tg-steps code, .intro-card code { font-size: 12.5px; padding: 1px 6px; border-radius: 6px; background: rgba(255, 255, 255, .08); color: #fff; }
+.tg-connect { position: relative; display: flex; gap: 10px; }
+.tg-connect input {
+  flex: 1; min-width: 0; height: 46px; padding: 0 14px; border-radius: 14px; outline: 0; font-size: 14px;
+  background: rgba(255, 255, 255, .06); border: 1px solid rgba(255, 255, 255, .12); color: var(--text);
+}
+.tg-connect input:focus { border-color: #2aabee; }
+.err-line { color: #ffb4a8 !important; font-size: 13.5px !important; margin: 10px 0 0 !important; }
+.tg-chats { position: relative; display: grid; gap: 8px; margin-bottom: 18px; max-height: 280px; overflow-y: auto; }
+.tg-empty { padding: 16px; border-radius: 14px; border: 1px dashed rgba(255, 255, 255, .15); color: var(--muted); font-size: 14px; }
+.tg-empty b { color: #fff; }
+.tg-chat {
+  display: grid; grid-template-columns: auto minmax(0, 1fr) auto; gap: 12px; align-items: center; text-align: left; padding: 10px 12px;
+  border-radius: 14px; border: 1px solid rgba(255, 255, 255, .06); background: rgba(255, 255, 255, .04); color: var(--text);
+}
+.tg-chat:hover { border-color: rgba(42, 171, 238, .6); }
+.tg-chat span { display: grid; min-width: 0; }
+.tg-chat b { font-weight: 600; font-size: 14.5px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.tg-chat small { color: var(--muted); font-size: 12px; }

@@ -15,7 +15,8 @@ function contentSecurityPolicy(dev: boolean): string {
     "style-src 'self' 'unsafe-inline'",
     "img-src 'self' data: blob:",
     "font-src 'self' data:",
-    `connect-src 'self' ${modelHosts}${dev ? ' ws: wss:' : ''}`,
+    // api.telegram.org is used only if you connect your own Telegram bot (optional, user-initiated)
+    `connect-src 'self' ${modelHosts} https://api.telegram.org${dev ? ' ws: wss:' : ''}`,
     "worker-src 'self' blob:",
     "manifest-src 'self'",
     "object-src 'none'",

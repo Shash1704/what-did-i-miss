@@ -5,7 +5,7 @@
 import { parseChat, type Message } from './parser'
 import { looksLikeTelegramHtml, looksLikeTelegramJson, parseTelegramHtml, parseTelegramJson } from './telegram'
 
-export type ChatSource = 'whatsapp' | 'telegram' | 'text'
+export type ChatSource = 'whatsapp' | 'telegram' | 'telegram-live' | 'text'
 export interface LoadedChat { name: string; messages: Message[]; source: ChatSource; me?: string }
 
 const decoder = new TextDecoder('utf-8')

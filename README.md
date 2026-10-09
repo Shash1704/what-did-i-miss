@@ -14,7 +14,7 @@
 
 - **Every requirement in the brief is covered:** summaries, important messages, decisions, action items, urgency and relevance ranking, mentions, deadlines and tasks. See the [mapping table](#how-we-meet-the-challenge) below, with links to the code.
 - **Local-first is enforced, not just promised.** There's no server, no cloud AI API, no API keys and no `.env`. The AI model runs **in the browser on your own GPU**, and a **Content Security Policy** makes the browser itself refuse to send data anywhere except the model download.
-- **It works with real chats today:** WhatsApp (Android share menu, `.txt`, iPhone `.zip`), Telegram Desktop exports (JSON or HTML), or any pasted chat.
+- **It works with real chats today:** WhatsApp (Android share menu, `.txt`, iPhone `.zip`), Telegram Desktop exports (JSON or HTML), **live Telegram through your own bot**, or any pasted chat.
 - **The accuracy is measured:** 28 automated tests plus an accuracy harness on hand-labelled chats, run in CI. A failing test blocks deployment.
 - **It opens straight into a working demo:** no setup, no sign-up, nothing to install.
 
@@ -59,13 +59,13 @@ Every major decision traces back to the brief. This section explains the reasoni
 
 ### 5. Privacy that's enforced, not just promised
 **Why:** "we don't upload your data" is a promise; we wanted something verifiable.
-**How:** a **Content Security Policy** ([`vite.config.ts`](app/vite.config.ts)) lets the page connect **only** to the AI model hosts (Hugging Face, GitHub raw). We tested it: a deliberate `fetch` to another domain is **blocked by the browser**. Even a bug or a compromised dependency couldn't send a chat out.
+**How:** a **Content Security Policy** ([`vite.config.ts`](app/vite.config.ts)) lets the page connect **only** to the AI model hosts (Hugging Face, GitHub raw), plus `api.telegram.org`, which is contacted only if *you* connect your own Telegram bot. We tested it: a deliberate `fetch` to another domain is **blocked by the browser**. Even a bug or a compromised dependency couldn't send a chat out.
 
 ### 6. Official ways to get chats in (no scraping, no terms-of-service violations)
 **Why:** unofficial "WhatsApp Web" libraries break WhatsApp's terms, risk users' accounts getting banned, and would route data through extra software.
 **Instead:** we use each app's **official export**:
 - **WhatsApp:** *Export chat*. On Android the installed app appears **in WhatsApp's share menu** (Web Share Target), two taps from chat to briefing. iPhone `.zip` exports are unzipped in the browser.
-- **Telegram:** Telegram Desktop *Export chat history* (JSON or HTML).
+- **Telegram:** Telegram Desktop *Export chat history* (JSON or HTML), **or live**: create your own bot with @BotFather, add it to the group and paste its token. Your browser polls Telegram's official Bot API directly, so there's still no server of ours, and the token and messages stay in your browser. Telegram holds a bot's undelivered messages for 24 hours, which fits "what did I miss".
 - **Anything else:** paste `Name: message` lines (Slack, Discord, Teams…).
 
 ### 7. A minimal interface: answer first, details on demand
@@ -85,7 +85,7 @@ Every major decision traces back to the brief. This section explains the reasoni
 
 ## Verify the privacy claims yourself
 
-1. **Network tab:** open DevTools → Network, load a chat and generate a summary. The only external requests are the model files from Hugging Face; your chat is never in a request.
+1. **Network tab:** open DevTools → Network, load a chat and generate a summary. The only external requests are the model files from Hugging Face (and Telegram's own API, if you connected a bot); your chat is never sent anywhere.
 2. **Airplane mode:** load the app once with the model cached, turn Wi-Fi off, reload, and summarize again. It still works.
 3. **The lock:** view the page source and you'll see the `Content-Security-Policy` meta tag listing the only allowed hosts. In the console, `fetch('https://example.com')` is refused.
 4. **No secrets:** there's no `.env`, no API key and no server code anywhere in the repo.
@@ -97,7 +97,7 @@ Every major decision traces back to the brief. This section explains the reasoni
 - **Briefing (home):** headline count, AI catch-up, *Next up*, *Needs you* (grouped and prioritized), recent decisions
 - **Insights:** stat cards, 6-day deadline calendar, hot topics, priority inbox, unread map, noise-filtered gauge, chat-activity chart with urgent markers
 - **Full chat:** highlighted messages, an unread divider, and on-device search
-- **Inputs:** WhatsApp (Android share target, `.txt`, iPhone `.zip`), Telegram Desktop (`result.json` / `messages.html`), paste, or drag-and-drop anywhere
+- **Inputs:** WhatsApp (Android share target, `.txt`, iPhone `.zip`), Telegram Desktop (`result.json` / `messages.html`), **live Telegram via your own bot**, paste, or drag-and-drop anywhere
 - **Understands:** Android and iPhone formats, US and Indian date order (auto-detected), WhatsApp's `~ Name` for non-contacts, Hinglish ("kal tak", "aaj raat", "pakka", "jaldi")
 - **Installable app** with an offline cache; opens straight into a demo chat with a first-launch notice
 
@@ -146,6 +146,7 @@ app/src/
   components/ActivityChart.tsx
   lib/parser.ts           WhatsApp parser + date-order detection
   lib/telegram.ts         Telegram Desktop JSON/HTML import
+  lib/telegramBot.ts      Live Telegram via the user's own bot (Bot API, browser-direct)
   lib/importFile.ts       File detection, .zip, WhatsApp share-target hand-off
   lib/analyze.ts          Rule engine: mentions, deadlines, decisions, tasks, urgency, Hinglish
   lib/identity.ts         "Who are you?" (names, @usernames, phone numbers)
@@ -187,7 +188,6 @@ npm run eval       # print the accuracy tables
 
 ## Roadmap
 
-- Live Telegram connection through a user-owned bot (Telegram's official Bot API; still no server of ours)
 - Multiple chats at once ("Across 4 groups, 7 things need you")
 - One-tap reply drafts written on-device
 - Optional, clearly labelled cloud fallback for devices without a GPU (off by default)
