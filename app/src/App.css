@@ -123,7 +123,7 @@
 .cal-days div { display: grid; gap: 2px; color: #8f847d; font-size: 14px; }
 .cal-days b { font-weight: 500; font-size: 14px; }
 .cal-days .today { color: #fff; }
-.cal-body { display: grid; grid-template-columns: 64px 1fr; height: 270px; padding: 16px 0 22px; }
+.cal-body { display: grid; grid-template-columns: 64px 1fr; height: 290px; padding: 18px 0 36px; }
 .cal-hours { position: relative; }
 .cal-hours span { position: absolute; left: 0; transform: translateY(-50%); font-size: 12px; color: #a39890; white-space: nowrap; }
 .cal-grid { position: relative; }
@@ -422,4 +422,87 @@ mark { background: rgba(255, 122, 47, .22); color: var(--orange-2); border-radiu
 @media (max-width: 760px) {
   .intro-card { padding: 28px 22px 22px; }
   .demo-pill { order: 2; }
+}
+
+/* =========================================================
+   KPI strip (card-in-card stat tiles)
+   ========================================================= */
+.span-3 { grid-column: span 3; }
+.span-12 { grid-column: span 12; }
+.kpi { padding: 14px 14px 14px; }
+.kpi-head { display: flex; justify-content: space-between; align-items: center; padding: 2px 4px 12px; }
+.kpi-head h3 { font-size: 15px; }
+.kpi-go {
+  width: 28px; height: 28px; border-radius: 50%; border: 0; display: grid; place-items: center;
+  background: #f6f1ec; color: #1b130f; transition: transform .15s, background .2s;
+}
+.kpi-go:hover { transform: rotate(45deg); background: var(--orange); }
+.kpi-panel { background: rgba(255, 255, 255, .045); border: 1px solid rgba(255, 255, 255, .05); border-radius: 16px; padding: 14px 16px 12px; }
+.kpi-val { display: flex; align-items: baseline; gap: 8px; }
+.kpi-val b { font-size: 40px; font-weight: 500; letter-spacing: -0.04em; line-height: 1.05; }
+.kpi-val span { font-size: 13px; color: var(--muted); }
+.kpi-foot { display: flex; justify-content: space-between; align-items: center; margin-top: 12px; padding-top: 10px; border-top: 1px solid var(--line); font-size: 12px; color: var(--muted); }
+.kpi-foot b { color: var(--text); font-weight: 600; font-size: 12.5px; }
+.kpi:first-child .kpi-val b { color: var(--orange-2); }
+
+/* Next deadline inset (calendar) */
+.next-event {
+  display: grid; gap: 4px; width: 100%; min-width: 0; text-align: left; margin-top: 4px; padding: 10px 14px; border-radius: 14px;
+  background: rgba(255, 255, 255, .05); border: 1px solid rgba(255, 255, 255, .06); color: var(--text);
+}
+.next-event:hover { border-color: rgba(255, 122, 47, .5); }
+.ne-label { font-size: 11.5px; color: var(--muted); }
+.ne-row { display: grid; grid-template-columns: minmax(0, 1fr) auto; gap: 14px; align-items: baseline; min-width: 0; }
+.ne-row b { font-size: 14px; font-weight: 600; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; min-width: 0; }
+.ne-row span { font-size: 12.5px; color: var(--orange-2); white-space: nowrap; }
+
+/* Grouped to-dos */
+.todo-panel { background: rgba(255, 255, 255, .045); border: 1px solid rgba(255, 255, 255, .05); border-radius: 16px; padding: 12px 14px; }
+.todo-group + .todo-group { margin-top: 10px; }
+.tg-label { font-size: 12px; color: var(--muted); margin-bottom: 4px; }
+.todo-row { display: grid; grid-template-columns: auto minmax(0, 1fr) auto; gap: 10px; align-items: center; padding: 6px 0; }
+.tick {
+  width: 16px; height: 16px; border-radius: 50%; border: 1.5px solid #8c8079; background: transparent; padding: 0; display: grid; place-items: center;
+}
+.tick:hover { border-color: var(--orange); }
+.todo-row.is-done .tick { background: var(--green); border-color: var(--green); }
+.todo-row.is-done .tick::after { content: '✓'; font-size: 10px; color: #0d2a16; font-weight: 700; }
+.t-text { display: flex; flex-direction: column; font-size: 13.5px; cursor: pointer; min-width: 0; overflow: hidden; }
+.t-title, .t-text small { display: block; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.t-text small { font-size: 11px; color: var(--muted); }
+.todo-row.is-done .t-text { text-decoration: line-through; color: var(--muted); }
+.prio { font-size: 11.5px; }
+.prio.high { color: var(--orange-2); font-weight: 600; }
+.prio.medium { color: #d9c3a6; }
+.prio.low { color: var(--muted); }
+
+/* =========================================================
+   Activity chart
+   ========================================================= */
+.act-head { display: flex; justify-content: space-between; align-items: center; margin-bottom: 14px; }
+.seg { display: flex; gap: 4px; padding: 3px; border-radius: 999px; background: rgba(255, 255, 255, .04); border: 1px solid var(--line); }
+.seg button { height: 26px; padding: 0 12px; border-radius: 999px; border: 0; background: none; color: var(--muted); font-size: 12px; font-weight: 600; }
+.seg button.on { background: #f6f1ec; color: #1b130f; }
+.act-panel { background: rgba(255, 255, 255, .035); border: 1px solid rgba(255, 255, 255, .05); border-radius: 16px; padding: 16px 18px 12px; }
+.act-figure { display: flex; align-items: baseline; gap: 14px; flex-wrap: wrap; }
+.act-figure b { font-size: 40px; font-weight: 500; letter-spacing: -0.04em; }
+.act-figure span { font-size: 13px; color: var(--muted); }
+.act-figure em { font-style: normal; color: var(--orange-2); font-weight: 600; }
+.act-svg { width: 100%; height: auto; display: block; margin-top: 6px; overflow: visible; }
+.act-grid { stroke: rgba(255, 255, 255, .07); stroke-width: 1; }
+.act-label { fill: #8f847d; font-size: 12px; font-family: inherit; }
+.act-label.strong { fill: var(--orange-2); font-weight: 600; }
+.act-shade { fill: rgba(255, 122, 47, .06); }
+.act-cut { stroke: rgba(255, 122, 47, .55); stroke-width: 1.2; }
+.act-cut.dashed { stroke: rgba(255, 255, 255, .45); stroke-dasharray: 4 4; }
+.act-line { fill: none; stroke: #f3ebe5; stroke-width: 2.2; stroke-linejoin: round; }
+.act-pt { cursor: pointer; }
+.act-dot { fill: var(--orange); stroke: #1a110d; stroke-width: 2.5; transition: r .15s; filter: drop-shadow(0 0 6px rgba(255, 122, 47, .8)); }
+.act-tip { fill: #f6f1ec; }
+.act-tip-text { fill: #1b130f; font-size: 13px; font-weight: 600; font-family: inherit; }
+.act-quote { margin-top: 6px; min-height: 20px; font-size: 13.5px; color: #e2d8d1; }
+.act-quote.muted { color: var(--muted); font-size: 12.5px; }
+
+@media (max-width: 1180px) {
+  .span-3 { grid-column: span 6; }
 }

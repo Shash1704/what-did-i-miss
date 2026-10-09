@@ -5,6 +5,7 @@ import { MODELS, hasWebGPU, isCached, loadModel, summarize } from './lib/llm'
 import { buildDemoChat, DEMO_ME, DEMO_LAST_READ, DEMO_NAME } from './data/demo'
 import { readChatFile, takeSharedChat } from './lib/importFile'
 import { cleanTitle, deadlineCalendar, hotTopics, hueFor, initials } from './lib/insights'
+import ActivityChart from './components/ActivityChart'
 import './App.css'
 
 interface InstallPrompt extends Event { prompt: () => Promise<void> }
@@ -350,6 +351,37 @@ export default function App() {
   const donePct = myTodos.length ? Math.round((doneCount / myTodos.length) * 100) : 100
   const modelName = MODELS.find(m => m.id === modelId)?.label.split(' (')[0]
 
+  const DAY = 86400000
+  const startOfDay = (d: Date) => new Date(d).setHours(0, 0, 0, 0)
+  const upcoming = a.deadlines.filter(s => s.deadline!.getTime() >= a.now.getTime())
+  const nextDue = upcoming[0]
+  const due24 = upcoming.filter(s => s.deadline!.getTime() - a.now.getTime() < DAY)
+  const questions = a.mentions.filter(s => s.flags.some(f => f.kind === 'question')).length
+  const latestDecision = a.decisions[a.decisions.length - 1]
+
+  type Prio = 'High' | 'Medium' | 'Low'
+  const prioOf = (s: Scored): Prio => {
+    const hrs = s.deadline ? (s.deadline.getTime() - a.now.getTime()) / 3600000 : Infinity
+    if (s.priority === 'urgent' || hrs < 12) return 'High'
+    if (hrs < 48 || s.priority === 'relevant') return 'Medium'
+    return 'Low'
+  }
+  const groupOf = (s: Scored) => {
+    if (!s.deadline) return 'Anytime'
+    const diff = Math.round((startOfDay(s.deadline) - startOfDay(a.now)) / DAY)
+    return diff <= 0 ? 'Today' : diff === 1 ? 'Tomorrow' : 'Upcoming'
+  }
+  const todoGroups = (['Today', 'Tomorrow', 'Upcoming', 'Anytime'] as const)
+    .map(g => ({ g, items: myTodos.filter(s => groupOf(s) === g) }))
+    .filter(x => x.items.length)
+
+  const kpis = [
+    { label: 'Mentions you', value: a.stats.mentions, unit: 'mentions', footL: 'Asked you a question', footR: String(questions), target: 'inbox' },
+    { label: 'Due in 24 hours', value: due24.length, unit: 'deadlines', footL: 'Next', footR: nextDue ? fmtTime(nextDue.deadline!) : '—', target: 'deadlines' },
+    { label: 'Decisions', value: a.decisions.length, unit: 'made', footL: 'Latest', footR: latestDecision ? fmtTime(latestDecision.msg.ts) : '—', target: 'decisions' },
+    { label: 'Reading saved', value: `~${a.stats.minutesSaved}`, unit: 'min', footL: 'Chatter filtered', footR: `${Math.round(noisePct * 100)}%`, target: 'ai' },
+  ]
+
   const statusOf = (s: Scored) => {
     if (done.has(s.msg.id)) return { cls: 'done', label: 'done' }
     if (!s.deadline) return { cls: 'prog', label: 'open' }
@@ -392,6 +424,17 @@ export default function App() {
             </section>
           ) : (
             <div className="bento">
+              {/* KPI strip */}
+              {kpis.map(k => (
+                <section key={k.label} className="tile span-3 kpi">
+                  <div className="kpi-head"><h3>{k.label}</h3><button className="kpi-go" onClick={() => scrollToId(k.target)} title={`Go to ${k.label.toLowerCase()}`}><Icon name="arrow" size={14} /></button></div>
+                  <div className="kpi-panel">
+                    <div className="kpi-val"><b>{k.value}</b><span>{k.unit}</span></div>
+                    <div className="kpi-foot"><span>{k.footL}</span><b>{k.footR}</b></div>
+                  </div>
+                </section>
+              ))}
+
               {/* Deadline calendar */}
               <section className="tile span-8 cal-tile" id="deadlines">
                 <div className="cal-head">
@@ -425,6 +468,12 @@ export default function App() {
                     </div>
                   </div>
                 </div>
+                {nextDue && (
+                  <button className="next-event" onClick={() => jump(nextDue.msg.id)}>
+                    <span className="ne-label">Next deadline</span>
+                    <span className="ne-row"><b>{cleanTitle(nextDue.msg.text, people)}</b><span>{fmtWhen(nextDue.deadline!, a.now)}</span></span>
+                  </button>
+                )}
                 <div className="since">
                   <span>Last read</span>
                   <input type="range" min={0} max={msgs.length - 1} value={sinceIdx} onChange={e => { setSinceIdx(+e.target.value); resetSummary() }} />
@@ -448,7 +497,7 @@ export default function App() {
 
               {/* Inbox + AI */}
               <div className="span-4 col-stack">
-                <section className="tile">
+                <section className="tile" id="inbox">
                   <div className="tile-head"><h3>Priority inbox</h3><button className="more" onClick={() => setShowFyi(!showFyi)} title="Show chatter">•••</button></div>
                   <div className="well">
                     <div className="well-head"><span>{inbox.length} need attention</span><button className="pill-btn sm" onClick={() => setShowFyi(!showFyi)}>{showFyi ? 'Less' : `+${fyi.length} FYI`}</button></div>
@@ -464,7 +513,7 @@ export default function App() {
                   </div>
                 </section>
 
-                <section className="tile ai-tile">
+                <section className="tile ai-tile" id="ai">
                   <div className="tile-head">
                     <div><h3><Icon name="sparkle" size={16} /> AI catch-up</h3><small className="sub">{modelName} · running in this tab</small></div>
                     {(llm === 'done' || llm === 'error') && <button className="more" onClick={runAI} title="Regenerate"><Icon name="edit" size={16} /></button>}
@@ -515,23 +564,37 @@ export default function App() {
                 <div className="goal-line"><span>Tasks for you</span><span className="count-chip">{myTodos.length} <Icon name="arrow" size={12} /></span></div>
                 <div className="big-pct"><b>{donePct}</b><span>%</span><small>done</small></div>
                 <div className="mini-dots">{myTodos.map(s => <span key={s.msg.id} className={statusOf(s).cls}><i /><i /><i /><i /><i /><i /></span>)}</div>
-                <div className="rows">
+                <div className="todo-panel">
                   {myTodos.length === 0 && <p className="sub">Nothing assigned to you 🎉</p>}
-                  {myTodos.map(s => {
-                    const st = statusOf(s)
-                    return (
-                      <div key={s.msg.id} className={`row-item ${done.has(s.msg.id) ? 'is-done' : ''}`}>
-                        <span className="tag">{s.msg.author}</span>
-                        <span className="r-text" title={s.msg.text} onClick={() => jump(s.msg.id)}>{cleanTitle(s.msg.text, people)}</span>
-                        <button className={`status ${st.cls}`} onClick={() => toggleDone(s.msg.id)} title="Mark done">{st.label}</button>
-                      </div>
-                    )
-                  })}
+                  {todoGroups.map(({ g, items }) => (
+                    <div key={g} className="todo-group">
+                      <div className="tg-label">{g}</div>
+                      {items.map(s => {
+                        const p = prioOf(s)
+                        return (
+                          <div key={s.msg.id} className={`todo-row ${done.has(s.msg.id) ? 'is-done' : ''}`}>
+                            <button className="tick" onClick={() => toggleDone(s.msg.id)} aria-label="Mark done" />
+                            <span className="t-text" title={s.msg.text} onClick={() => jump(s.msg.id)}>
+                              <span className="t-title">{cleanTitle(s.msg.text, people)}</span>
+                              <small>{s.msg.author}{s.deadline ? ` · due ${fmtTime(s.deadline)}` : ''}</small>
+                            </span>
+                            <span className={`prio ${p.toLowerCase()}`}>{p}</span>
+                          </div>
+                        )
+                      })}
+                    </div>
+                  ))}
+                  <div className="kpi-foot"><span>Others' open tasks</span><b>{otherTodos.length}</b></div>
                 </div>
               </section>
 
+              {/* Activity chart */}
+              <section className="tile span-12" id="activity">
+                <ActivityChart msgs={msgs} scored={a.scored} sinceIdx={sinceIdx} onPick={jump} />
+              </section>
+
               {/* Decisions + others */}
-              <section className="tile span-6">
+              <section className="tile span-6" id="decisions">
                 <div className="tile-head"><h3>Decisions made</h3><span className="pill-btn sm">{a.decisions.length}</span></div>
                 <div className="rows">
                   {a.decisions.length === 0 && <p className="sub">No decisions spotted.</p>}
