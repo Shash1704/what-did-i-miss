@@ -286,7 +286,7 @@ export default function App() {
       </nav>
       <nav className="rail bottom">
         {install && <button onClick={install} title="Install app"><Icon name="download" /></button>}
-        <button className={online ? 'safe' : 'offline'} title={online ? 'Processed on this device · 0 bytes sent' : 'Offline · still working'}><Icon name="shield" /></button>
+        <button className={online ? 'safe' : 'offline'} title={`${online ? 'Processed on this device · 0 bytes sent' : 'Offline · still working'}. Network locked by the browser (Content Security Policy): this page can only download the open-source AI model, so your chats can't be sent anywhere.`}><Icon name="shield" /></button>
         {!isDemo && <button onClick={loadDemo} title="Back to the demo chat"><Icon name="exit" /></button>}
       </nav>
       <input ref={fileInput} type="file" accept=".txt,.zip,.json,.html,text/plain,application/zip,application/json,text/html" hidden onChange={e => { if (e.target.files?.[0]) onFile(e.target.files[0]); e.target.value = '' }} />

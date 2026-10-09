@@ -12,9 +12,11 @@ const IOS = /^‎?\[(\d{1,2})[/.-](\d{1,2})[/.-](\d{2,4}),?\s+(\d{1,2}):(\d{2})(
 // Generic: "Name: msg"
 const GENERIC = /^([A-Za-z][\w .'-]{0,30}):\s(.+)$/
 
-function toDate(d: string, m: string, y: string, hh: string, mm: string, ss: string | undefined, ampm: string | undefined): Date {
-  let day = +d, month = +m
-  if (month > 12 && day <= 12) [day, month] = [month, day]
+export type DateOrder = 'DMY' | 'MDY'
+
+function toDate(order: DateOrder, a: string, b: string, y: string, hh: string, mm: string, ss: string | undefined, ampm: string | undefined): Date {
+  let [day, month] = order === 'DMY' ? [+a, +b] : [+b, +a]
+  if (month > 12 && day <= 12) [day, month] = [month, day] // impossible month: the other order must be right
   let year = +y
   if (year < 100) year += 2000
   let hour = +hh
@@ -32,26 +34,52 @@ function cleanAuthor(raw: string): string {
   return raw.replace(/[\u200e\u200f\u202a-\u202e]/g, '').replace(/^[~\s\u00a0\u202f]+/, '').trim()
 }
 
+/**
+ * WhatsApp writes dates in the phone's locale: 09/10/26 is 9 Oct in India but Sep 10 in the US.
+ * Decide once per file: a first number > 12 proves day-first, a second number > 12 proves month-first;
+ * if the file never disambiguates, pick the order whose timestamps run forwards most consistently.
+ */
+export function detectDateOrder(pairs: [number, number, string][]): DateOrder {
+  let dayFirst = false, monthFirst = false
+  for (const [a, b] of pairs) { if (a > 12) dayFirst = true; if (b > 12) monthFirst = true }
+  if (dayFirst !== monthFirst) return dayFirst ? 'DMY' : 'MDY'
+  const backwards = (order: DateOrder) => {
+    let n = 0, prev = -Infinity
+    for (const [a, b, y] of pairs) {
+      const [d, m] = order === 'DMY' ? [a, b] : [b, a]
+      const key = (+y % 100) * 10000 + m * 100 + d
+      if (key < prev) n++
+      prev = key
+    }
+    return n
+  }
+  const dmy = backwards('DMY'), mdy = backwards('MDY')
+  if (dmy !== mdy) return dmy < mdy ? 'DMY' : 'MDY'
+  return typeof navigator !== 'undefined' && /^en-US$/i.test(navigator.language) ? 'MDY' : 'DMY'
+}
+
 const SYSTEM = /(end-to-end encrypted|created group|added you|changed the subject|changed this group|left$|joined using|<Media omitted>|This message was deleted|image omitted|sticker omitted)/i
 
 export function parseChat(raw: string): Message[] {
   const lines = raw.replace(/\r\n?/g, '\n').split('\n')
+  const matches = lines.map(line => line.match(ANDROID) || line.match(IOS))
+  const order = detectDateOrder(matches.filter((m): m is RegExpMatchArray => !!m).map(m => [+m[1], +m[2], m[3]]))
   const out: Message[] = []
   let timestamped = false
 
-  for (const line of lines) {
-    const m = line.match(ANDROID) || line.match(IOS)
+  lines.forEach((line, i) => {
+    const m = matches[i]
     if (m) {
       timestamped = true
-      const [, d, mo, y, hh, mm, ss, ampm, author, text] = m
-      out.push({ id: out.length, ts: toDate(d, mo, y, hh, mm, ss, ampm), author: cleanAuthor(author), text: text.replace(/\u200e/g, '').trim() })
+      const [, a, b, y, hh, mm, ss, ampm, author, text] = m
+      out.push({ id: out.length, ts: toDate(order, a, b, y, hh, mm, ss, ampm), author: cleanAuthor(author), text: text.replace(/\u200e/g, '').trim() })
     } else if (out.length && line.trim() && (timestamped || !GENERIC.test(line))) {
       out[out.length - 1].text += '\n' + line.trim()
     } else if (!timestamped) {
       const g = line.match(GENERIC)
       if (g) out.push({ id: out.length, ts: new Date(0), author: g[1].trim(), text: g[2].trim() })
     }
-  }
+  })
 
   // Untimestamped paste: synthesize 2-minute spacing ending now
   if (!timestamped && out.length) {
