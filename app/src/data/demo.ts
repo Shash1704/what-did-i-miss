@@ -97,8 +97,8 @@ function fmt(d: Date) {
   return `${pad(d.getDate())}/${pad(d.getMonth() + 1)}/${d.getFullYear()}, ${h}:${pad(d.getMinutes())} ${ampm}`
 }
 
-export function buildDemoChat(): string {
-  const end = new Date()
+export function buildDemoChat(endAt: Date = new Date()): string {
+  const end = new Date(endAt)
   end.setSeconds(0, 0)
   const total = SCRIPT[SCRIPT.length - 1][0]
   const start = new Date(end.getTime() - (total + 4) * 60000)

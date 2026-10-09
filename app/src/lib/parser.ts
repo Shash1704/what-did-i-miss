@@ -55,7 +55,14 @@ export function detectDateOrder(pairs: [number, number, string][]): DateOrder {
   }
   const dmy = backwards('DMY'), mdy = backwards('MDY')
   if (dmy !== mdy) return dmy < mdy ? 'DMY' : 'MDY'
-  return typeof navigator !== 'undefined' && /^en-US$/i.test(navigator.language) ? 'MDY' : 'DMY'
+  // Still a tie: browser language is unreliable (many Indian users run en-US browsers), so use the
+  // device's time zone. Month-first is essentially a US convention; everywhere else is day-first.
+  return usesMonthFirst() ? 'MDY' : 'DMY'
+}
+
+const US_ZONES = /^(America\/(New_York|Chicago|Denver|Phoenix|Los_Angeles|Anchorage|Detroit|Boise|Indiana\/.*|Kentucky\/.*|North_Dakota\/.*|Juneau|Sitka|Nome|Adak|Menominee)|Pacific\/Honolulu|US\/.*)$/
+function usesMonthFirst(): boolean {
+  try { return US_ZONES.test(Intl.DateTimeFormat().resolvedOptions().timeZone) } catch { return false }
 }
 
 const SYSTEM = /(end-to-end encrypted|created group|added you|changed the subject|changed this group|left$|joined using|<Media omitted>|This message was deleted|image omitted|sticker omitted)/i

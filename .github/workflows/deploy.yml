@@ -1,4 +1,4 @@
-name: Deploy to GitHub Pages
+name: Test and deploy to GitHub Pages
 
 on:
   push:
@@ -31,6 +31,8 @@ jobs:
           cache: npm
           cache-dependency-path: app/package-lock.json
       - run: npm ci
+      # Unit tests + accuracy harness must pass before anything is deployed
+      - run: npm test
       - run: npm run build
       - uses: actions/configure-pages@v5
       - uses: actions/upload-pages-artifact@v3
