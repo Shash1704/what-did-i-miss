@@ -264,8 +264,15 @@ export default function App() {
     const who = meGuess && ppl.includes(meGuess) ? meGuess : remembered ?? chat.me ?? ''
     setMe(who)
     if (!demo && !remembered) { setWhoDraft(chat.me ?? ''); setShowWho(true) }
-    setSinceIdx(lastRead ?? defaultSince(parsed, who))
-    setSincePreset(demo ? 'custom' : 'mine')
+    // Re-opening a chat you've seen before starts from your last visit, so only new messages count
+    const seenKey = `wdim-seen:${chat.source}:${chat.name}`
+    let lastSeen = 0
+    try { lastSeen = +(localStorage.getItem(seenKey) ?? 0) } catch { /* storage unavailable */ }
+    const firstNew = lastSeen ? parsed.findIndex(m => m.ts.getTime() > lastSeen) : -1
+    if (lastRead !== undefined) { setSinceIdx(lastRead); setSincePreset('custom') }
+    else if (firstNew > 0) { setSinceIdx(firstNew); setSincePreset('visit'); setVisitIdx(firstNew) }
+    else { setSinceIdx(defaultSince(parsed, who)); setSincePreset('mine'); setVisitIdx(-1) }
+    if (!demo) try { localStorage.setItem(seenKey, String(parsed[parsed.length - 1].ts.getTime())) } catch { /* storage unavailable */ }
     setDone(new Set())
     setView('brief')
     setQuery('')
@@ -273,11 +280,13 @@ export default function App() {
     window.scrollTo({ top: 0 })
   }
 
-  type SincePreset = 'mine' | '1h' | 'today' | '24h' | 'all' | 'custom'
+  type SincePreset = 'visit' | 'mine' | '1h' | 'today' | '24h' | 'all' | 'custom'
   const [sincePreset, setSincePreset] = useState<SincePreset>('custom') // the demo opens at a fixed read point
+  const [visitIdx, setVisitIdx] = useState(-1)
   function applySince(p: SincePreset) {
     setSincePreset(p)
     if (p === 'custom' || !msgs.length) return
+    if (p === 'visit') { setSinceIdx(Math.max(0, visitIdx)); resetSummary(); return }
     const end = msgs[msgs.length - 1].ts.getTime()
     const from = p === 'mine' ? null : p === 'all' ? -Infinity : p === '1h' ? end - 3600000 : p === '24h' ? end - 86400000 : new Date(end).setHours(0, 0, 0, 0)
     setSinceIdx(from === null ? defaultSince(msgs, me) : Math.max(0, msgs.findIndex(m => m.ts.getTime() >= from)))
@@ -290,10 +299,43 @@ export default function App() {
     return Math.floor(list.length * 0.2)
   }
 
-  function onFile(f: File) {
-    readChatFile(f, f.name)
-      .then(chat => open(chat))
-      .catch(err => alert(`Couldn't read that file: ${err.message}`))
+  /** One or more files. Several files (e.g. Telegram's messages.html, messages2.html…) merge into one chat. */
+  async function onFiles(files: File[]) {
+    if (!files.length) return
+    try {
+      const chats = await Promise.all(files.map(f => readChatFile(f, f.name)))
+      if (chats.length === 1) return open(chats[0])
+      const seen = new Set<string>()
+      const merged = chats.flatMap(c => c.messages)
+        .sort((x, y) => x.ts.getTime() - y.ts.getTime())
+        .filter(m => { const k = `${m.ts.getTime()}|${m.author}|${m.text}`; return seen.has(k) ? false : (seen.add(k), true) })
+        .map((m, i) => ({ ...m, id: i }))
+      open({ ...chats[0], messages: merged, me: chats.find(c => c.me)?.me })
+    } catch (err) {
+      alert(`Couldn't read that file: ${(err as Error).message}`)
+    }
+  }
+
+  /** Upcoming deadlines as an .ics calendar file, generated locally and downloaded. */
+  function downloadCalendar(items: Scored[]) {
+    const stamp = (d: Date) => d.toISOString().replace(/[-:]/g, '').replace(/\.\d{3}/, '')
+    const esc = (t: string) => t.replace(/[\\;,]/g, m => `\\${m}`).replace(/\n/g, '\\n')
+    const events = items.map(s => [
+      'BEGIN:VEVENT',
+      `UID:wdim-${s.msg.ts.getTime()}-${s.msg.id}@whatdidimiss`,
+      `DTSTAMP:${stamp(new Date())}`,
+      `DTSTART:${stamp(s.deadline!)}`,
+      `DTEND:${stamp(new Date(s.deadline!.getTime() + 30 * 60000))}`,
+      `SUMMARY:${esc(cleanTitle(s.msg.text, people).slice(0, 90))}`,
+      `DESCRIPTION:${esc(`From ${s.msg.author} in ${chatName}: ${s.msg.text}`)}`,
+      'BEGIN:VALARM', 'TRIGGER:-PT1H', 'ACTION:DISPLAY', 'DESCRIPTION:Deadline in 1 hour', 'END:VALARM',
+      'END:VEVENT',
+    ].join('\r\n'))
+    const ics = ['BEGIN:VCALENDAR', 'VERSION:2.0', 'PRODID:-//What Did I Miss//EN', ...events, 'END:VCALENDAR'].join('\r\n')
+    const url = URL.createObjectURL(new Blob([ics], { type: 'text/calendar' }))
+    const link = Object.assign(document.createElement('a'), { href: url, download: `${chatName.replace(/[^\w -]/g, '').trim() || 'chat'} deadlines.ics` })
+    link.click()
+    setTimeout(() => URL.revokeObjectURL(url), 1000)
   }
 
   async function runAI() {
@@ -413,7 +455,7 @@ export default function App() {
         <button className={online ? 'safe' : 'offline'} title={`${online ? 'Processed on this device · 0 bytes sent' : 'Offline · still working'}. Network locked by the browser (Content Security Policy): this page can only download the open-source AI model, so your chats can't be sent anywhere.`}><Icon name="shield" /></button>
         {!isDemo && <button onClick={loadDemo} title="Back to the demo chat"><Icon name="exit" /></button>}
       </nav>
-      <input ref={fileInput} type="file" accept=".txt,.zip,.json,.html,text/plain,application/zip,application/json,text/html" hidden onChange={e => { if (e.target.files?.[0]) onFile(e.target.files[0]); e.target.value = '' }} />
+      <input ref={fileInput} type="file" accept=".txt,.zip,.json,.html,text/plain,application/zip,application/json,text/html" hidden onChange={e => { if (e.target.files?.length) onFiles([...e.target.files]); e.target.value = '' }} multiple />
     </aside>
   )
 
@@ -514,7 +556,7 @@ export default function App() {
   const dropHandlers = {
     onDragOver: (e: React.DragEvent) => { if (e.dataTransfer.types.includes('Files')) { e.preventDefault(); setDragging(true) } },
     onDragLeave: (e: React.DragEvent) => { if (e.currentTarget === e.target) setDragging(false) },
-    onDrop: (e: React.DragEvent) => { e.preventDefault(); setDragging(false); const f = e.dataTransfer.files[0]; if (f) onFile(f) },
+    onDrop: (e: React.DragEvent) => { e.preventDefault(); setDragging(false); onFiles([...e.dataTransfer.files]) },
   }
 
   const tgModal = showTg && (
@@ -731,6 +773,7 @@ export default function App() {
                   <label className="since-pill" title="What counts as missed">
                     <Icon name="calendar" size={14} />
                     <select value={sincePreset} onChange={e => applySince(e.target.value as SincePreset)}>
+                      {visitIdx > 0 && <option value="visit">Since my last visit</option>}
                       <option value="mine">Since my last message</option>
                       <option value="1h">Last hour</option>
                       <option value="today">Today</option>
@@ -808,7 +851,10 @@ export default function App() {
                 <div className="cal-head">
                   <span className="pill-btn">Away {fmtDuration(a.now.getTime() - (lastRead?.ts.getTime() ?? a.now.getTime()))}</span>
                   <h3>Deadlines · {cal.days[0].toLocaleDateString(undefined, { month: 'long', day: 'numeric' })}</h3>
-                  <span className="pill-btn">{cal.later ? `+${cal.later} later` : 'Next 6 days'}</span>
+                  <span className="cal-actions">
+                    <span className="pill-btn">{cal.later ? `+${cal.later} later` : 'Next 6 days'}</span>
+                    {upcoming.length > 0 && <button className="pill-btn add-cal" onClick={() => downloadCalendar(upcoming)} title="Download an .ics file for Apple / Google / Outlook Calendar"><Icon name="calendar" size={13} /> Add to calendar</button>}
+                  </span>
                 </div>
                 <div className="cal">
                   <div className="cal-days">

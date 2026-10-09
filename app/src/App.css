@@ -702,3 +702,7 @@ button.me:hover .avatar { box-shadow: 0 0 0 2px var(--orange); }
   background: #f6f1ec; color: #1b130f; font-size: 11.5px; font-weight: 600;
 }
 .status.claimed { background: rgba(255, 176, 46, .14); color: var(--amber); }
+.cal-actions { display: flex; gap: 8px; align-items: center; }
+.add-cal { gap: 6px; cursor: pointer; }
+.add-cal:hover { border-color: var(--orange); color: #fff; }
+.add-cal svg { color: var(--orange); }

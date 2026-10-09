@@ -95,10 +95,12 @@ Every major decision traces back to the brief. This section explains the reasoni
 ## Features
 
 - **Briefing (home):** greeting and headline count, a *Since you left* picker (since my last message / last hour / today / 24h / everything), AI catch-up, *Next up*, *Needs you* (grouped, prioritized, top task highlighted) with **one-tap reply drafts written on-device**, and recent decisions
-- **Insights:** stat cards, 6-day deadline calendar, hot topics, priority inbox, unread map, noise-filtered gauge, chat-activity chart with urgent markers
+- **Insights:** stat cards, 6-day deadline calendar (with **Add to calendar** `.ics` export, generated on-device), hot topics, priority inbox, unread map, noise-filtered gauge, chat-activity chart with urgent markers
 - **Full chat:** highlighted messages, an unread divider, and on-device search
 - **Inputs:** WhatsApp (Android share target, `.txt`, iPhone `.zip`), Telegram Desktop (`result.json` / `messages.html`), **live Telegram via your own bot**, paste, or drag-and-drop anywhere
 - **Understands:** Android and iPhone formats, US and Indian date order (auto-detected), WhatsApp's `~ Name` for non-contacts, Hinglish ("kal tak", "aaj raat", "pakka", "jaldi")
+- **Remembers where you left off:** re-importing the same group later starts *since your last visit*, so only new messages count
+- **Multi-file import:** drop several files at once (e.g. Telegram's `messages.html`, `messages2.html`…) and they merge into one chat
 - **Installable app** with an offline cache; opens straight into a demo chat with a first-launch notice
 
 ## Architecture
