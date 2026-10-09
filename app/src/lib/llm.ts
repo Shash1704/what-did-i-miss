@@ -140,3 +140,31 @@ export async function summarize(a: Analysis, me: string, onToken: (full: string)
   }
   return full
 }
+
+/** Draft a short reply to a message addressed to you, written on-device. */
+export async function draftReply(input: { author: string; text: string; me: string; due?: string }, onToken: (t: string) => void): Promise<string> {
+  if (!engine) throw new Error('Model not loaded')
+  const first = input.author.split(/\s+/)[0]
+  // The model speaks AS the user (first person) and never needs the user's own name, which small
+  // models otherwise confuse with the recipient. One example pins the style.
+  const ask = (who: string, text: string, due?: string) =>
+    `${who} asked me in our group chat: "${text.replace(/\n/g, ' ').slice(0, 300)}"\nWrite my reply to ${who}, confirming I'll do it${due ? ` (deadline: ${due})` : ''}.`
+  const clean = (t: string) => t.replace(/^["'“]|["'”]$/g, '').trim()
+  const stream = await engine.chat.completions.create({
+    stream: true,
+    temperature: 0.3,
+    max_tokens: 60,
+    messages: [
+      { role: 'system', content: 'You write short, friendly chat replies. You ARE the person replying: write in first person ("I"). One or two short sentences, under 25 words. Output only the reply text.' },
+      { role: 'user', content: ask('Priya', 'can you bring the banner to the hall by 10am tomorrow?', 'Sat 10:00 AM') },
+      { role: 'assistant', content: "Sure Priya, I'll bring the banner to the hall before 10 tomorrow!" },
+      { role: 'user', content: ask(first, input.text, input.due) },
+    ],
+  })
+  let full = ''
+  for await (const chunk of stream) {
+    full += chunk.choices[0]?.delta?.content ?? ''
+    onToken(clean(full))
+  }
+  return clean(full)
+}

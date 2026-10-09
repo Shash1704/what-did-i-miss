@@ -1,7 +1,7 @@
-import { useEffect, useMemo, useRef, useState } from 'react'
+import { Fragment, useEffect, useMemo, useRef, useState } from 'react'
 import { parseChat, participants, type Message } from './lib/parser'
 import { analyze, fmtWhen, type Scored } from './lib/analyze'
-import { LIGHT_MODEL, MODELS, hasWebGPU, isCached, loadModel, recommendModel, summarize } from './lib/llm'
+import { LIGHT_MODEL, MODELS, draftReply, hasWebGPU, isCached, loadModel, recommendModel, summarize } from './lib/llm'
 import { buildDemoChat, DEMO_ME, DEMO_LAST_READ, DEMO_NAME } from './data/demo'
 import { readChatFile, takeSharedChat, type ChatSource, type LoadedChat } from './lib/importFile'
 import { cleanTitle, deadlineCalendar, hotTopics, hueFor, initials } from './lib/insights'
@@ -65,6 +65,8 @@ const ICONS = {
   edit: 'M4 20h4L19 9l-4-4L4 16zM13 7l4 4',
   arrow: 'M7 17L17 7M9 7h8v8',
   sparkle: 'M12 3l2 6 6 2-6 2-2 6-2-6-6-2 6-2z',
+  reply: 'M10 9V5l-7 7 7 7v-4.1c5 0 8.5 1.6 11 5.1-1-5-4-10-11-11z',
+  copy: 'M8 8h11v12H8zM5 16V4h11',
   send: 'M21 3L3 10.5l7 2.5 2.5 7L21 3zM10 13l5-5',
   chart: 'M4 20V11M10 20V5M16 20v-7M21 20H3',
 }
@@ -321,6 +323,30 @@ export default function App() {
       setProgress({ pct: 0, text: String((e as Error).message || e) })
       setLlm('error')
     }
+  }
+
+  // ---- On-device reply drafts ----
+  const [drafts, setDrafts] = useState<Record<number, { status: 'loading' | 'writing' | 'done' | 'error'; text: string; copied?: boolean }>>({})
+  async function makeDraft(s: Scored) {
+    const id = s.msg.id
+    setDrafts(d => ({ ...d, [id]: { status: 'loading', text: 'Loading the on-device model…' } }))
+    try {
+      await loadModel(modelId, r => setDrafts(d => ({ ...d, [id]: { status: 'loading', text: `Loading the on-device model… ${Math.round(r.progress * 100)}%` } })))
+      if (llm === 'idle') setLlm('ready')
+      setDrafts(d => ({ ...d, [id]: { status: 'writing', text: '' } }))
+      const due = s.deadline ? s.deadline.toLocaleString(undefined, { weekday: 'short', hour: 'numeric', minute: '2-digit' }) : undefined
+      const text = await draftReply({ author: s.msg.author, text: s.msg.text, me: myName, due }, t => setDrafts(d => ({ ...d, [id]: { status: 'writing', text: t } })))
+      setDrafts(d => ({ ...d, [id]: { status: 'done', text } }))
+    } catch (err) {
+      setDrafts(d => ({ ...d, [id]: { status: 'error', text: (err as Error).message } }))
+    }
+  }
+  async function copyDraft(id: number) {
+    try {
+      await navigator.clipboard.writeText(drafts[id]?.text ?? '')
+      setDrafts(d => ({ ...d, [id]: { ...d[id], copied: true } }))
+      setTimeout(() => setDrafts(d => ({ ...d, [id]: { ...d[id], copied: false } })), 1800)
+    } catch { /* clipboard blocked */ }
   }
 
   function jump(id: number) {
@@ -616,14 +642,29 @@ export default function App() {
           {items.map(s => {
             const p = prioOf(s)
             return (
-              <div key={s.msg.id} className={`todo-row ${done.has(s.msg.id) ? 'is-done' : ''} ${s.msg.id === topTaskId ? 'top' : ''}`}>
+              <Fragment key={s.msg.id}>
+              <div className={`todo-row ${done.has(s.msg.id) ? 'is-done' : ''} ${s.msg.id === topTaskId ? 'top' : ''}`}>
                 <button className="tick" onClick={() => toggleDone(s.msg.id)} aria-label="Mark done" />
                 <span className="t-text" title={s.msg.text} onClick={() => jump(s.msg.id)}>
                   <span className="t-title">{cleanTitle(s.msg.text, people)}</span>
                   <small>{s.msg.author}{s.deadline ? ` · due ${fmtWhen(s.deadline, a.now)}` : ''}</small>
                 </span>
                 <span className={`prio ${p.toLowerCase()}`}>{p}</span>
+                {llm !== 'unsupported' && (
+                  <button className="reply-btn" title="Draft a reply with the on-device AI" disabled={llm === 'generating' || drafts[s.msg.id]?.status === 'loading' || drafts[s.msg.id]?.status === 'writing'} onClick={() => makeDraft(s)}>
+                    <Icon name="reply" size={14} />{drafts[s.msg.id] ? 'Redo' : 'Reply'}
+                  </button>
+                )}
               </div>
+              {drafts[s.msg.id] && (
+                <div className={`draft ${drafts[s.msg.id].status}`}>
+                  <span className="draft-text">{drafts[s.msg.id].text}{drafts[s.msg.id].status === 'writing' && <span className="cursor">▍</span>}</span>
+                  {drafts[s.msg.id].status === 'done' && (
+                    <button className="copy-btn" onClick={() => copyDraft(s.msg.id)}><Icon name="copy" size={13} />{drafts[s.msg.id].copied ? 'Copied!' : 'Copy'}</button>
+                  )}
+                </div>
+              )}
+              </Fragment>
             )
           })}
         </div>

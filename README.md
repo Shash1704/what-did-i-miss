@@ -94,7 +94,7 @@ Every major decision traces back to the brief. This section explains the reasoni
 
 ## Features
 
-- **Briefing (home):** headline count, AI catch-up, *Next up*, *Needs you* (grouped and prioritized), recent decisions
+- **Briefing (home):** greeting and headline count, a *Since you left* picker (since my last message / last hour / today / 24h / everything), AI catch-up, *Next up*, *Needs you* (grouped, prioritized, top task highlighted) with **one-tap reply drafts written on-device**, and recent decisions
 - **Insights:** stat cards, 6-day deadline calendar, hot topics, priority inbox, unread map, noise-filtered gauge, chat-activity chart with urgent markers
 - **Full chat:** highlighted messages, an unread divider, and on-device search
 - **Inputs:** WhatsApp (Android share target, `.txt`, iPhone `.zip`), Telegram Desktop (`result.json` / `messages.html`), **live Telegram via your own bot**, paste, or drag-and-drop anywhere
@@ -189,7 +189,6 @@ npm run eval       # print the accuracy tables
 ## Roadmap
 
 - Multiple chats at once ("Across 4 groups, 7 things need you")
-- One-tap reply drafts written on-device
 - Optional, clearly labelled cloud fallback for devices without a GPU (off by default)
 
 ## Built with AI
