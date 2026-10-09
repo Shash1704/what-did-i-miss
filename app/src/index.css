@@ -1,23 +1,27 @@
 @import '@fontsource-variable/inter-tight';
 
 :root {
-  --page: #15100f;
-  --page-ink: #f1e8e1;
-  --ink: #17110f;
-  --red: #d43c1c;
-  --orange: #e08a5f;
-  --teal: #163632;
-  --good: #3ddc97;
+  --text: #f6efe9;
+  --muted: #9b8f87;
+  --faint: rgba(255, 255, 255, 0.06);
+  --line: rgba(255, 255, 255, 0.08);
+  --orange: #ff7a2f;
+  --orange-2: #ff9a52;
+  --amber: #ffb02e;
+  --red: #ff5a4e;
+  --green: #6fdc8c;
+  --blue: #7fb2ff;
+  --tile: linear-gradient(180deg, rgba(36, 28, 24, 0.92), rgba(20, 15, 13, 0.94));
   color-scheme: dark;
   font-family: 'Inter Tight Variable', 'Inter Tight', ui-sans-serif, system-ui, -apple-system, 'Segoe UI', sans-serif;
-  font-feature-settings: 'ss01', 'cv11';
-  color: var(--page-ink);
-  background: var(--page);
+  color: var(--text);
+  background: #0d0908;
   -webkit-font-smoothing: antialiased;
 }
 
 * { box-sizing: border-box; }
-body { margin: 0; background: var(--page); min-height: 100vh; }
+body { margin: 0; min-height: 100vh; background: #0d0908; }
 button, select, input, textarea { font: inherit; color: inherit; }
 button { cursor: pointer; }
-a { color: inherit; cursor: pointer; text-decoration: underline; text-underline-offset: 2px; }
+button:disabled { cursor: default; }
+a { color: inherit; }

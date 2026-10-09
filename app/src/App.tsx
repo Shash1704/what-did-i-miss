@@ -1,9 +1,10 @@
 import { useEffect, useMemo, useRef, useState } from 'react'
 import { parseChat, participants, type Message } from './lib/parser'
-import { analyze, fmtWhen, type Scored, type Priority } from './lib/analyze'
+import { analyze, fmtWhen, type Scored } from './lib/analyze'
 import { MODELS, hasWebGPU, isCached, loadModel, summarize } from './lib/llm'
 import { buildDemoChat, DEMO_ME, DEMO_LAST_READ, DEMO_NAME } from './data/demo'
 import { readChatFile, takeSharedChat } from './lib/importFile'
+import { cleanTitle, deadlineCalendar, hotTopics, hueFor, initials } from './lib/insights'
 import './App.css'
 
 interface InstallPrompt extends Event { prompt: () => Promise<void> }
@@ -21,8 +22,7 @@ function useInstallPrompt() {
 }
 
 type LlmState = 'idle' | 'loading' | 'ready' | 'generating' | 'done' | 'error' | 'unsupported'
-
-const PRIORITY_LABEL: Record<Priority, string> = { urgent: 'Urgent', relevant: 'Relevant', fyi: 'FYI / chatter' }
+type View = 'brief' | 'chat'
 
 function useOnline() {
   const [online, setOnline] = useState(navigator.onLine)
@@ -35,9 +35,9 @@ function useOnline() {
   return online
 }
 
-function fmtTime(d: Date) {
-  return d.toLocaleTimeString(undefined, { hour: 'numeric', minute: '2-digit' })
-}
+const fmtTime = (d: Date) => d.toLocaleTimeString(undefined, { hour: 'numeric', minute: '2-digit' })
+const fmtHour = (h: number) => new Date(2000, 0, 1, h).toLocaleTimeString(undefined, { hour: 'numeric', minute: '2-digit' })
+const escapeRe = (s: string) => s.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')
 
 function fmtDuration(ms: number) {
   const m = Math.round(ms / 60000)
@@ -46,52 +46,69 @@ function fmtDuration(ms: number) {
   return h < 48 ? `${h}h ${m % 60}m` : `${Math.round(h / 24)}d`
 }
 
-const pad2 = (n: number) => String(n).padStart(2, '0') + '.'
-
-function Arrow({ dir = 'right' }: { dir?: 'right' | 'down' | 'diag' | 'up' }) {
-  const rot = { right: 0, down: 90, diag: 45, up: -90 }[dir]
+// ---------- tiny icon set ----------
+const ICONS = {
+  home: 'M3 11l9-7 9 7v9a1 1 0 0 1-1 1h-5v-6H9v6H4a1 1 0 0 1-1-1z',
+  chat: 'M4 5h16v11H9l-5 4z',
+  calendar: 'M4 6h16v14H4zM4 10h16M9 3v5M15 3v5',
+  upload: 'M12 16V4M7 9l5-5 5 5M4 20h16',
+  shield: 'M12 3l8 3v6c0 5-3.5 8-8 9-4.5-1-8-4-8-9V6z',
+  download: 'M12 4v12M7 11l5 5 5-5M4 20h16',
+  exit: 'M14 4h5a1 1 0 0 1 1 1v14a1 1 0 0 1-1 1h-5M10 8l-4 4 4 4M6 12h10',
+  search: 'M11 4a7 7 0 1 0 0 14 7 7 0 0 0 0-14zM20 20l-4-4',
+  bell: 'M6 16v-5a6 6 0 0 1 12 0v5l2 2H4zM10 21h4',
+  edit: 'M4 20h4L19 9l-4-4L4 16zM13 7l4 4',
+  arrow: 'M7 17L17 7M9 7h8v8',
+  sparkle: 'M12 3l2 6 6 2-6 2-2 6-2-6-6-2 6-2z',
+}
+function Icon({ name, size = 20 }: { name: keyof typeof ICONS; size?: number }) {
   return (
-    <svg className="arrow" viewBox="0 0 24 24" width="1em" height="1em" style={{ transform: `rotate(${rot}deg)` }} aria-hidden>
-      <path d="M4 12h15M13 6l6 6-6 6" fill="none" stroke="currentColor" strokeWidth="1.6" strokeLinecap="round" strokeLinejoin="round" />
+    <svg viewBox="0 0 24 24" width={size} height={size} aria-hidden fill="none" stroke="currentColor" strokeWidth="1.7" strokeLinecap="round" strokeLinejoin="round">
+      <path d={ICONS[name]} />
     </svg>
   )
 }
 
-function Markdown({ text }: { text: string }) {
-  const inline = (s: string) => s.split(/(\*\*[^*]+\*\*)/g).map((p, i) =>
-    p.startsWith('**') && p.endsWith('**') ? <strong key={i}>{p.slice(2, -2)}</strong> : <span key={i}>{p}</span>)
-  const blocks: React.ReactNode[] = []
-  let list: string[] = []
-  const flush = () => {
-    if (list.length) blocks.push(<ul key={blocks.length}>{list.map((l, i) => <li key={i}>{inline(l)}</li>)}</ul>)
-    list = []
-  }
-  for (const raw of text.split('\n')) {
-    const line = raw.trim()
-    if (!line) continue
-    const bullet = line.match(/^[-*•]\s+(.*)$/) || line.match(/^\d+\.\s+(.*)$/)
-    if (bullet) { list.push(bullet[1]); continue }
-    flush()
-    const h = line.match(/^(?:#+\s*)?\*\*(.+?)\*\*:?$/) || line.match(/^#+\s*(.+)$/)
-    blocks.push(h ? <h4 key={blocks.length}>{h[1]}</h4> : <p key={blocks.length}>{inline(line)}</p>)
-  }
-  flush()
-  return <div className="md">{blocks}</div>
-}
-
-function highlight(text: string, me: string) {
-  const first = me.split(/\s+/)[0]
-  const re = new RegExp(`(@?${first.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}\\b|@everyone)`, 'gi')
-  return text.split(re).map((p, i) => (i % 2 ? <mark key={i}>{p}</mark> : p))
-}
-
-function CardFoot({ n, children }: { n: number; children?: React.ReactNode }) {
+function Avatar({ name, size = 26 }: { name: string; size?: number }) {
+  const h = hueFor(name)
   return (
-    <div className="card-foot">
-      <span className="num">{pad2(n)}</span>
-      <div className="foot-action">{children}</div>
-    </div>
+    <span className="avatar" title={name} style={{ width: size, height: size, fontSize: size * 0.4, background: `linear-gradient(135deg, hsl(${h} 85% 62%), hsl(${h + 8} 70% 32%))` }}>
+      {initials(name)}
+    </span>
   )
+}
+
+function Dots({ scored }: { scored: Scored[] }) {
+  return <div className="dots">{scored.map(s => <i key={s.msg.id} className={s.priority} title={`${s.msg.author}: ${s.msg.text.slice(0, 60)}`} />)}</div>
+}
+
+function Gauge({ pct }: { pct: number }) {
+  const r = 70, C = 2 * Math.PI * r, sweep = 0.75
+  return (
+    <svg viewBox="0 0 180 180" className="gauge">
+      <defs>
+        <linearGradient id="g-track" x1="0" y1="0" x2="1" y2="1"><stop offset="0" stopColor="#3a2a22" /><stop offset="1" stopColor="#6b3a22" /></linearGradient>
+        <linearGradient id="g-val" x1="0" y1="1" x2="1" y2="0"><stop offset="0" stopColor="#ffb02e" /><stop offset="1" stopColor="#ff7a2f" /></linearGradient>
+      </defs>
+      <circle cx="90" cy="90" r={r} fill="none" stroke="url(#g-track)" strokeWidth="14" strokeLinecap="round" strokeDasharray={`${C * sweep} ${C}`} transform="rotate(135 90 90)" />
+      <circle cx="90" cy="90" r={r} fill="none" stroke="url(#g-val)" strokeWidth="14" strokeLinecap="round" strokeDasharray={`${C * sweep * pct} ${C}`} transform="rotate(135 90 90)" style={{ transition: 'stroke-dasharray .8s ease' }} />
+    </svg>
+  )
+}
+
+/** Bold the facts (times, days, deadlines) inside AI prose so it scans fast. */
+function Prose({ text }: { text: string }) {
+  const clean = text.replace(/\*\*/g, '').replace(/^#+\s*/gm, '').replace(/^\s*[-*•]\s+/gm, '').trim()
+  const re = /(\b\d{1,2}(?::\d{2})?\s?(?:am|pm)\b|\b(?:today|tonight|tomorrow|monday|tuesday|wednesday|thursday|friday|saturday|sunday|asap|urgent(?:ly)?|deadline)\b|₹\s?\d+)/gi
+  return <p className="prose">{clean.split(re).map((p, i) => (i % 2 ? <b key={i}>{p}</b> : p))}</p>
+}
+
+function highlight(text: string, me: string, query = '') {
+  const first = me.split(/\s+/)[0]
+  const parts = [`@?${escapeRe(first)}\\b`, '@everyone']
+  if (query.trim()) parts.push(escapeRe(query.trim()))
+  const re = new RegExp(`(${parts.join('|')})`, 'gi')
+  return text.split(re).map((p, i) => (i % 2 ? <mark key={i}>{p}</mark> : p))
 }
 
 export default function App() {
@@ -99,7 +116,8 @@ export default function App() {
   const [chatName, setChatName] = useState('')
   const [me, setMe] = useState('')
   const [sinceIdx, setSinceIdx] = useState(0)
-  const [tab, setTab] = useState<'brief' | 'chat'>('brief')
+  const [view, setView] = useState<View>('brief')
+  const [query, setQuery] = useState('')
   const [paste, setPaste] = useState('')
   const [dragging, setDragging] = useState(false)
   const [done, setDone] = useState<Set<number>>(new Set())
@@ -113,6 +131,7 @@ export default function App() {
   const [cached, setCached] = useState(false)
   const [genMs, setGenMs] = useState(0)
   const cancel = useRef({ cancelled: false })
+  const fileInput = useRef<HTMLInputElement>(null)
   const online = useOnline()
   const install = useInstallPrompt()
   const [sharedNotice, setSharedNotice] = useState(false)
@@ -149,7 +168,8 @@ export default function App() {
     setMe(meGuess && ppl.includes(meGuess) ? meGuess : remembered && ppl.includes(remembered) ? remembered : ppl[0])
     setSinceIdx(lastRead ?? Math.floor(parsed.length * 0.2))
     setDone(new Set())
-    setTab('brief')
+    setView('brief')
+    setQuery('')
     resetSummary()
     window.scrollTo({ top: 0 })
   }
@@ -180,100 +200,150 @@ export default function App() {
   }
 
   function jump(id: number) {
-    setTab('chat')
+    setQuery('')
+    setView('chat')
     setFlashId(id)
-    setTimeout(() => document.getElementById(`m${id}`)?.scrollIntoView({ behavior: 'smooth', block: 'center' }), 50)
+    setTimeout(() => document.getElementById(`m${id}`)?.scrollIntoView({ behavior: 'smooth', block: 'center' }), 60)
     setTimeout(() => setFlashId(null), 2500)
   }
 
-  const brand = <div className="brand" onClick={() => setRaw(null)} role="button">WhatDidIMiss<sup>®</sup></div>
-  const badge = (
-    <div className={`privacy ${online ? '' : 'offline'}`} title="Your chat is parsed and summarized entirely inside this browser tab. Nothing is uploaded.">
-      <span className="dot" />{online ? 'On-device · 0 bytes sent' : 'Offline · still working'}
-    </div>
+  function scrollToId(id: string) {
+    setView('brief')
+    setTimeout(() => document.getElementById(id)?.scrollIntoView({ behavior: 'smooth', block: 'start' }), 60)
+  }
+
+  const toggleDone = (id: number) => setDone(d => { const n = new Set(d); if (n.has(id)) n.delete(id); else n.add(id); return n })
+  const tryDemo = () => open(buildDemoChat(), DEMO_NAME, DEMO_ME, DEMO_LAST_READ)
+  const loaded = !!a
+  const openTasks = a ? a.actions.filter(s => s.owner === me && !done.has(s.msg.id)).length : 0
+
+  // ---------------- shell ----------------
+  const sidebar = (
+    <aside className="sidebar">
+      <button className="logo" onClick={() => setRaw(null)} title="What Did I Miss?"><img src="./icons/icon-192.png" alt="" /></button>
+      <nav className="rail">
+        <button className={view === 'brief' || !loaded ? 'on' : ''} onClick={() => { if (loaded) scrollToId('top') }} title="Briefing"><Icon name="home" /></button>
+        <button className={view === 'chat' && loaded ? 'on' : ''} disabled={!loaded} onClick={() => setView('chat')} title="Full chat"><Icon name="chat" /></button>
+        <button disabled={!loaded} onClick={() => scrollToId('deadlines')} title="Deadlines"><Icon name="calendar" /></button>
+        <button onClick={() => fileInput.current?.click()} title="Open a chat export"><Icon name="upload" /></button>
+      </nav>
+      <nav className="rail bottom">
+        {install && <button onClick={install} title="Install app"><Icon name="download" /></button>}
+        <button className={online ? 'safe' : 'offline'} title={online ? 'Processed on this device · 0 bytes sent' : 'Offline · still working'}><Icon name="shield" /></button>
+        {loaded && <button onClick={() => setRaw(null)} title="Close chat"><Icon name="exit" /></button>}
+      </nav>
+      <input ref={fileInput} type="file" accept=".txt,.zip,text/plain,application/zip" hidden onChange={e => { if (e.target.files?.[0]) onFile(e.target.files[0]); e.target.value = '' }} />
+    </aside>
   )
+
+  const q = query.trim().toLowerCase()
+  const searchResults = a && q ? msgs.filter(m => m.text.toLowerCase().includes(q) || m.author.toLowerCase().includes(q)) : null
+
+  const topbar = (
+    <header className="topbar">
+      <div className={`status-pill ${online ? '' : 'offline'}`}>
+        <span className="sp-dot" />
+        <span>{online ? 'On-device' : 'Offline'}</span>
+        <span className="sp-sep" />
+        <span className="sp-muted">0 bytes sent</span>
+      </div>
+      <label className="search">
+        <Icon name="search" size={18} />
+        <input
+          value={query}
+          disabled={!loaded}
+          onChange={e => { setQuery(e.target.value); if (e.target.value) setView('chat') }}
+          placeholder={loaded ? 'Search this chat (stays on your device)' : 'Open a chat to search'}
+        />
+        {query && <button className="clear" onClick={() => setQuery('')}>×</button>}
+      </label>
+      <div className="top-right">
+        {a && (
+          <button className="bell" onClick={() => scrollToId('todos')} title="Tasks for you">
+            <Icon name="bell" size={18} />
+            {openTasks > 0 && <span className="badge">{openTasks}</span>}
+          </button>
+        )}
+        {a ? (
+          <label className="me" title="Who are you in this chat?">
+            <Avatar name={me} size={38} />
+            <select value={me} onChange={e => { setMe(e.target.value); resetSummary(); try { localStorage.setItem('wdim-me', e.target.value) } catch { /* storage unavailable */ } }}>
+              {people.map(p => <option key={p}>{p}</option>)}
+            </select>
+          </label>
+        ) : <span className="avatar ghost">?</span>}
+      </div>
+    </header>
+  )
+
+  const toast = sharedNotice && <div className="toast"><span className="dot" />Received from WhatsApp · processed on this device only</div>
 
   // ---------------- Landing ----------------
   if (!a) {
-    const tryDemo = () => open(buildDemoChat(), DEMO_NAME, DEMO_ME, DEMO_LAST_READ)
     return (
-      <div className="page">
-        <header className="nav">
-          {brand}
-          <div className="nav-right">
-            {badge}
-            {install && <button className="install" onClick={install}>Install app <Arrow dir="down" /></button>}
-            <span className="menu"><i /><i />MENU</span>
-          </div>
-        </header>
+      <div className="backdrop">
+        <div className="shell">
+          {sidebar}
+          <main className="main">
+            {topbar}
+            <div className="bento">
+              <section className="tile span-8 hero-tile">
+                <div className="cal-head"><span className="pill-btn">Local-first AI</span><h3>The Unread Problem</h3><span className="pill-btn">WebGPU</span></div>
+                <h1>What did <span>I miss?</span></h1>
+                <p className="lede">Drop in an overwhelming group chat. Get your mentions, deadlines, decisions and to-dos ranked by urgency, plus an AI summary that runs <b>entirely on your device</b>.</p>
+                <div className="hero-actions">
+                  <button className="btn-orange" onClick={tryDemo}>Try the demo chat <Icon name="arrow" size={18} /></button>
+                  <button className="btn-ghost" onClick={() => fileInput.current?.click()}><Icon name="upload" size={18} /> Open a chat export</button>
+                </div>
+                <div className="hero-stats">
+                  <div><b>200+</b><span>unread messages</span></div>
+                  <div><b>10s</b><span>to catch up</span></div>
+                  <div><b>0</b><span>bytes uploaded</span></div>
+                </div>
+              </section>
 
-        <section className="card screen-mist hero">
-          <div className="hero-top">
-            <h1>What did<br />I miss?</h1>
-            <p className="caption">Catch up on an overwhelming group chat<br />in seconds. Private AI that runs on your device.</p>
-          </div>
-          <button className="rule-row" onClick={tryDemo}>
-            <span>Try the demo chat</span><Arrow />
-          </button>
-          <div className="hero-stats">
-            <div className="metric"><span className="m-label">Unread messages <span className="circ"><Arrow dir="down" /></span></span><span className="m-val">200<small>+</small></span></div>
-            <div className="metric"><span className="m-label">Time to catch up <span className="circ"><Arrow dir="up" /></span></span><span className="m-val">10<small>sec</small></span></div>
-          </div>
-          <CardFoot n={1}><button className="details" onClick={tryDemo}>Open demo <span className="circ solid"><Arrow /></span></button></CardFoot>
-        </section>
+              <section className="tile span-4 orange-tile">
+                <div className="silhouette">?</div>
+                <h2>Private <span>by design</span></h2>
+                <div className="orbit">
+                  <span className="o-pill" style={{ marginLeft: '8%' }}>On-device AI<i className="o-dot r" /></span>
+                  <span className="o-pill" style={{ marginLeft: '30%' }}><i className="o-dot l" />Works offline</span>
+                  <span className="o-pill" style={{ marginLeft: '14%' }}>No servers<i className="o-dot r" /></span>
+                </div>
+              </section>
 
-        <div className="trio">
-          <section
-            className={`card screen-cream drop ${dragging ? 'over' : ''}`}
-            onDragOver={e => { e.preventDefault(); setDragging(true) }}
-            onDragLeave={() => setDragging(false)}
-            onDrop={e => { e.preventDefault(); setDragging(false); const f = e.dataTransfer.files[0]; if (f) onFile(f) }}
-          >
-            <h2>Drop your<br />chat export <Arrow dir="diag" /></h2>
-            <div className="split-cap">
-              <p><b>Android:</b> install this app, then in WhatsApp open a chat → ⋮ → More → Export chat → share to <b>Missed?</b></p>
-              <p><b>iPhone / desktop:</b> Export chat → Save to Files, then drop the .txt or .zip here.</p>
+              <section
+                className={`tile span-4 drop-tile ${dragging ? 'over' : ''}`}
+                onDragOver={e => { e.preventDefault(); setDragging(true) }}
+                onDragLeave={() => setDragging(false)}
+                onDrop={e => { e.preventDefault(); setDragging(false); const f = e.dataTransfer.files[0]; if (f) onFile(f) }}
+              >
+                <div className="tile-head"><h3>Drop a chat export</h3><span className="more">•••</span></div>
+                <button className="dropzone" onClick={() => fileInput.current?.click()}>
+                  <Icon name="upload" size={28} />
+                  <b>Drop .txt or .zip here</b>
+                  <small>or click to browse</small>
+                </button>
+              </section>
+
+              <section className="tile span-4 paste-tile">
+                <div className="tile-head"><h3>Paste any chat</h3><span className="more">•••</span></div>
+                <textarea className="paste" value={paste} onChange={e => setPaste(e.target.value)} placeholder={'Ananya: @Shashwat can you send the deck by 5pm?\nRohan: venue is final, main auditorium'} />
+                <button className="btn-orange wide" disabled={!paste.trim()} onClick={() => open(paste, 'Pasted chat')}>Analyze</button>
+              </section>
+
+              <section className="tile span-4">
+                <div className="tile-head"><div><h3>Connect WhatsApp</h3><small className="sub">Official export and share. No scraping, no servers.</small></div><span className="more">•••</span></div>
+                <div className="rows">
+                  <div className="row-item"><span className="tag">Android</span><span className="r-text">Export chat → share to <b>Missed?</b></span><span className="status done">2 taps</span></div>
+                  <div className="row-item"><span className="tag">iPhone</span><span className="r-text">Export → Save to Files → drop .zip</span><span className="status prog">zip</span></div>
+                  <div className="row-item"><span className="tag">Desktop</span><span className="r-text">Slack, Discord, Teams → paste</span><span className="status prog">paste</span></div>
+                </div>
+              </section>
             </div>
-            <label className="rule-row as-label">
-              <span>Browse files</span><Arrow />
-              <input type="file" accept=".txt,.zip,text/plain,application/zip" hidden onChange={e => e.target.files?.[0] && onFile(e.target.files[0])} />
-            </label>
-            <CardFoot n={2} />
-          </section>
-
-          <section className="card screen-deep">
-            <h2>Paste any<br />chat <Arrow dir="diag" /></h2>
-            <div className="band"><span>Formats</span><span>Supported</span></div>
-            <table className="spec">
-              <tbody>
-                <tr><td>WhatsApp</td><td>Android &amp; iOS export</td></tr>
-                <tr><td>Slack</td><td>Copied thread</td></tr>
-                <tr><td>Discord</td><td>Copied channel</td></tr>
-                <tr><td>Teams</td><td>Copied chat</td></tr>
-                <tr><td>Anything</td><td>Name: message</td></tr>
-              </tbody>
-            </table>
-            <textarea value={paste} onChange={e => setPaste(e.target.value)} placeholder={'Ananya: @Shashwat can you send the deck by 5pm?\nRohan: venue is final, main auditorium'} />
-            <CardFoot n={3}>
-              <button className="details" disabled={!paste.trim()} onClick={() => open(paste, 'Pasted chat')}>Analyze <span className="circ solid"><Arrow /></span></button>
-            </CardFoot>
-          </section>
-
-          <section className="card screen-ember">
-            <h2>Private by<br />design <Arrow dir="diag" /></h2>
-            <div className="split-cap">
-              <p>No server, no API keys and no tracking. The LLM runs in your browser through WebGPU.</p>
-              <p>The model is cached once, then everything works with Wi-Fi off.</p>
-            </div>
-            <div className="boxed">
-              <div className="box-tabs"><span className="on">Bytes uploaded</span><span>Servers</span><span>Trackers</span></div>
-              <small>Your chat data sent anywhere</small>
-              <div className="giant">0</div>
-            </div>
-            <CardFoot n={4} />
-          </section>
+          </main>
         </div>
-        <footer>Built local-first · No servers · No tracking · Your chat stays in this tab</footer>
+        {toast}
       </div>
     )
   }
@@ -281,209 +351,231 @@ export default function App() {
   // ---------------- Dashboard ----------------
   const myTodos = a.actions.filter(s => s.owner === me)
   const otherTodos = a.actions.filter(s => s.owner !== me)
-  const groups: Record<Priority, Scored[]> = { urgent: [], relevant: [], fyi: [] }
-  a.scored.filter(s => s.msg.author !== me).forEach(s => groups[s.priority].push(s))
-  groups.urgent.sort((x, y) => y.score - x.score)
+  const inbox = a.scored.filter(s => s.msg.author !== me && s.priority !== 'fyi').sort((x, y) => y.score - x.score)
+  const fyi = a.scored.filter(s => s.msg.author !== me && s.priority === 'fyi')
   const lastRead = msgs[Math.max(0, sinceIdx - 1)]
-  const upcoming = a.deadlines.filter(s => s.deadline!.getTime() >= a.now.getTime())
-  const nextDue = upcoming[0]
+  const cal = deadlineCalendar(a)
+  const topics = hotTopics(a, people)
+  const noisePct = a.unread.length ? fyi.length / a.unread.length : 0
+  const doneCount = myTodos.filter(s => done.has(s.msg.id)).length
+  const donePct = myTodos.length ? Math.round((doneCount / myTodos.length) * 100) : 100
+  const modelName = MODELS.find(m => m.id === modelId)?.label.split(' (')[0]
 
-  const item = (s: Scored) => (
-    <div key={s.msg.id} className={`item ${s.priority}`}>
-      <div className="item-head">
-        <span className="who">{s.msg.author}</span>
-        <span className="time">{fmtTime(s.msg.ts)}</span>
-        <button className="jump" onClick={() => jump(s.msg.id)}>View <Arrow dir="diag" /></button>
-      </div>
-      <div className="item-text">{highlight(s.msg.text, me)}</div>
-      {s.flags.length > 0 && <div className="chips">{s.flags.map((f, i) => <span key={i} className={`chip ${f.kind}`}>{f.label}</span>)}</div>}
-    </div>
-  )
+  const statusOf = (s: Scored) => {
+    if (done.has(s.msg.id)) return { cls: 'done', label: 'done' }
+    if (!s.deadline) return { cls: 'prog', label: 'open' }
+    const ms = s.deadline.getTime() - a.now.getTime()
+    return { cls: ms < 86400000 ? 'late' : 'prog', label: fmtWhen(s.deadline, a.now).split(' · ')[1] }
+  }
 
   return (
-    <div className="page">
-      <header className="nav">
-        {brand}
-        <div className="nav-right">
-          {badge}
-          <label className="me">I am
-            <select value={me} onChange={e => { setMe(e.target.value); resetSummary(); try { localStorage.setItem('wdim-me', e.target.value) } catch { /* storage unavailable */ } }}>
-              {people.map(p => <option key={p}>{p}</option>)}
-            </select>
-          </label>
-          <button className="menu" onClick={() => setRaw(null)}><i /><i />NEW CHAT</button>
-        </div>
-      </header>
+    <div className="backdrop">
+      <div className="shell">
+        {sidebar}
+        <main className="main" id="top">
+          {topbar}
 
-      {sharedNotice && <div className="toast"><span className="dot" />Received from WhatsApp · processed on this device only</div>}
-      <section className="card screen-mist overview">
-        <div className="ov-left">
-          <h1 className="ov-title">You missed<br />{a.stats.unread} messages</h1>
-          <p className="caption">{chatName} · away {fmtDuration(a.now.getTime() - (lastRead?.ts.getTime() ?? a.now.getTime()))}<br />Last read: {lastRead ? `${lastRead.author} at ${fmtTime(lastRead.ts)}` : 'nothing'}</p>
-          <div className="since">
-            <div className="rule-label"><span>Since you left</span><span>Drag to change</span></div>
-            <input type="range" min={0} max={msgs.length - 1} value={sinceIdx} onChange={e => { setSinceIdx(+e.target.value); resetSummary() }} />
-          </div>
-        </div>
-        <div className="ov-right">
-          <div className="metric"><span className="m-label">Urgent <span className="circ"><Arrow dir="up" /></span></span><span className="m-val">{a.stats.urgent}<small>items</small></span></div>
-          <div className="metric"><span className="m-label">Mention you <span className="circ"><Arrow dir="diag" /></span></span><span className="m-val">{a.stats.mentions}<small>times</small></span></div>
-          <div className="metric"><span className="m-label">Tasks for you <span className="circ"><Arrow dir="down" /></span></span><span className="m-val">{myTodos.length}<small>to-dos</small></span></div>
-          <div className="metric"><span className="m-label">Reading saved <span className="circ"><Arrow /></span></span><span className="m-val">~{a.stats.minutesSaved}<small>min</small></span></div>
-        </div>
-      </section>
-
-      <nav className="tabs">
-        <button className={tab === 'brief' ? 'on' : ''} onClick={() => setTab('brief')}>Briefing</button>
-        <button className={tab === 'chat' ? 'on' : ''} onClick={() => setTab('chat')}>Full chat</button>
-        <span className="tab-meta">{msgs.length} messages · {a.stats.deadlines} deadlines · {a.decisions.length} decisions</span>
-      </nav>
-
-      {tab === 'brief' ? (
-        <div className="grid">
-          <section className="card screen-deep ai">
-            <h2>AI catch-up <Arrow dir="diag" /></h2>
-            <div className="band"><span>On-device LLM</span><span>{MODELS.find(m => m.id === modelId)?.label.split(' (')[0]}</span></div>
-
-            {llm === 'unsupported' && <p className="note">This browser has no WebGPU, so the on-device LLM is unavailable. Everything else still works offline using the local rule engine. Use desktop Chrome or Edge for the AI summary.</p>}
-            {llm === 'idle' && !summary && <p className="note">{cached ? 'Model cached on this device · works offline. ' : 'First run downloads the model once, then it is cached and works offline. '}A language model runs inside this tab through WebGPU. No server, no API calls.</p>}
-            {llm === 'loading' && (
-              <div className="progress">
-                <div className="bar"><div style={{ width: `${progress.pct}%` }} /></div>
-                <small>{progress.text || 'Starting…'}</small>
+          {view === 'chat' ? (
+            <section className="tile chat-tile">
+              <div className="tile-head">
+                <div><h3>{searchResults ? `${searchResults.length} result${searchResults.length === 1 ? '' : 's'} for “${query.trim()}”` : chatName}</h3><small className="sub">{searchResults ? 'Searched locally on this device' : `${msgs.length} messages · ${a.unread.length} unread`}</small></div>
+                <button className="pill-btn" onClick={() => { setQuery(''); setView('brief') }}>Back to briefing</button>
               </div>
-            )}
-            {llm === 'error' && <p className="note err">{progress.text}</p>}
-            {summary && <Markdown text={summary} />}
-            {llm === 'generating' && <span className="cursor">▍</span>}
-            {llm === 'done' && <p className="note">Generated on your device in {(genMs / 1000).toFixed(1)}s</p>}
-
-            <CardFoot n={1}>
-              {(llm === 'idle' || llm === 'ready' || llm === 'done' || llm === 'error') && (
-                <>
-                  <select className="model" value={modelId} onChange={e => setModelId(e.target.value)} disabled={llm === 'ready' || llm === 'done'}>
-                    {MODELS.map(m => <option key={m.id} value={m.id}>{m.label}</option>)}
-                  </select>
-                  <button className="details" onClick={runAI}>{llm === 'done' ? 'Regenerate' : 'Summarize'} <span className="circ solid"><Arrow /></span></button>
-                </>
-              )}
-              {llm === 'loading' && <span className="foot-text">Loading model · {progress.pct}%</span>}
-              {llm === 'generating' && <button className="details" onClick={() => (cancel.current.cancelled = true)}>Stop <span className="circ solid">■</span></button>}
-            </CardFoot>
-          </section>
-
-          <section className="card screen-ember todos">
-            <h2>Your to-dos <Arrow dir="diag" /></h2>
-            <div className="split-cap">
-              <p>Tasks where someone named you or asked you directly.</p>
-              <p>{nextDue ? `Next deadline ${fmtWhen(nextDue.deadline!, a.now).split(' · ')[1]}.` : 'No deadlines spotted.'}</p>
-            </div>
-            <div className="list">
-              {myTodos.length === 0 && <p className="note">Nothing assigned to you.</p>}
-              {myTodos.map(s => (
-                <label key={s.msg.id} className={`todo ${done.has(s.msg.id) ? 'done' : ''}`}>
-                  <input type="checkbox" checked={done.has(s.msg.id)} onChange={() => setDone(d => { const n = new Set(d); n.has(s.msg.id) ? n.delete(s.msg.id) : n.add(s.msg.id); return n })} />
-                  <div>
-                    <div className="todo-text">{s.msg.text}</div>
-                    <small>{s.msg.author}{s.deadline && <> · <b>{fmtWhen(s.deadline, a.now)}</b></>} · <a onClick={() => jump(s.msg.id)}>view</a></small>
+              <div className="chat-scroll">
+                {(searchResults ?? msgs).map(m => {
+                  const i = m.id
+                  const s = i >= sinceIdx ? a.scored[i - sinceIdx] : undefined
+                  return (
+                    <div key={m.id}>
+                      {!searchResults && i === sinceIdx && <div className="unread-line"><span>{msgs.length - sinceIdx} unread</span></div>}
+                      <div id={`m${m.id}`} className={`bubble ${m.author === me ? 'mine' : ''} ${s ? s.priority : 'read'} ${flashId === m.id ? 'flash' : ''} ${searchResults ? 'clickable' : ''}`} onClick={() => { if (searchResults) jump(m.id) }}>
+                        {m.author !== me && <Avatar name={m.author} size={28} />}
+                        <div className="b-body">
+                          <div className="b-head"><b>{m.author}</b><span>{fmtTime(m.ts)}</span></div>
+                          <div>{highlight(m.text, me, query)}</div>
+                          {s && s.flags.length > 0 && <div className="chips">{s.flags.map((f, k) => <span key={k} className={`chip ${f.kind}`}>{f.label}</span>)}</div>}
+                        </div>
+                      </div>
+                    </div>
+                  )
+                })}
+              </div>
+            </section>
+          ) : (
+            <div className="bento">
+              {/* Deadline calendar */}
+              <section className="tile span-8 cal-tile" id="deadlines">
+                <div className="cal-head">
+                  <span className="pill-btn">Away {fmtDuration(a.now.getTime() - (lastRead?.ts.getTime() ?? a.now.getTime()))}</span>
+                  <h3>Deadlines · {cal.days[0].toLocaleDateString(undefined, { month: 'long', day: 'numeric' })}</h3>
+                  <span className="pill-btn">{cal.later ? `+${cal.later} later` : 'Next 6 days'}</span>
+                </div>
+                <div className="cal">
+                  <div className="cal-days">
+                    {cal.days.map((d, i) => (
+                      <div key={i} className={i === 0 ? 'today' : ''}><span>{d.toLocaleDateString(undefined, { weekday: 'short' })}</span><b>{d.getDate()}</b></div>
+                    ))}
                   </div>
-                </label>
-              ))}
-            </div>
-            <CardFoot n={2}><span className="foot-text">{done.size} of {myTodos.length} done</span></CardFoot>
-          </section>
-
-          <section className="card screen-mist inbox">
-            <h2>Priority inbox <Arrow dir="diag" /></h2>
-            {(['urgent', 'relevant'] as Priority[]).map(p => groups[p].length > 0 && (
-              <div key={p} className="group">
-                <div className="rule-label"><span>{PRIORITY_LABEL[p]}</span><span>{groups[p].length}</span></div>
-                {groups[p].map(item)}
-              </div>
-            ))}
-            {showFyi && (
-              <div className="group">
-                <div className="rule-label"><span>{PRIORITY_LABEL.fyi}</span><span>{groups.fyi.length}</span></div>
-                {groups.fyi.map(item)}
-              </div>
-            )}
-            <CardFoot n={3}>
-              <button className="details" onClick={() => setShowFyi(!showFyi)}>{showFyi ? 'Hide' : 'Show'} {groups.fyi.length} FYI <span className="circ solid"><Arrow dir={showFyi ? 'up' : 'down'} /></span></button>
-            </CardFoot>
-          </section>
-
-          <div className="stack">
-            <section className="card screen-deep">
-              <h2>Deadlines <Arrow dir="diag" /></h2>
-              <div className="band"><span>When</span><span>What</span></div>
-              <table className="spec clickable">
-                <tbody>
-                  {upcoming.length === 0 && <tr><td colSpan={2}>No upcoming deadlines.</td></tr>}
-                  {upcoming.map(s => (
-                    <tr key={s.msg.id} onClick={() => jump(s.msg.id)}>
-                      <td className={`when ${s.deadline!.getTime() - a.now.getTime() < 86400000 ? 'soon' : ''}`}>{fmtWhen(s.deadline!, a.now).replace(' · ', '\n')}</td>
-                      <td>{s.msg.text.slice(0, 90)}{s.msg.text.length > 90 ? '…' : ''}</td>
-                    </tr>
-                  ))}
-                </tbody>
-              </table>
-              <CardFoot n={4}>{nextDue && <span className="foot-text">Next {fmtWhen(nextDue.deadline!, a.now).split(' · ')[1]}</span>}</CardFoot>
-            </section>
-
-            <section className="card screen-cream">
-              <h2>Decisions <Arrow dir="diag" /></h2>
-              <table className="spec clickable">
-                <tbody>
-                  {a.decisions.length === 0 && <tr><td colSpan={2}>No decisions spotted.</td></tr>}
-                  {a.decisions.map(s => (
-                    <tr key={s.msg.id} onClick={() => jump(s.msg.id)}>
-                      <td className="who">{s.msg.author}<br /><small>{fmtTime(s.msg.ts)}</small></td>
-                      <td>{s.msg.text}</td>
-                    </tr>
-                  ))}
-                </tbody>
-              </table>
-              <CardFoot n={5} />
-            </section>
-
-            <section className="card screen-mist">
-              <h2>Others' tasks <Arrow dir="diag" /></h2>
-              <table className="spec clickable">
-                <tbody>
-                  {otherTodos.length === 0 && <tr><td colSpan={2}>None.</td></tr>}
-                  {otherTodos.map(s => (
-                    <tr key={s.msg.id} onClick={() => jump(s.msg.id)}>
-                      <td className="who">{s.owner ?? 'Unassigned'}</td>
-                      <td>{s.msg.text.slice(0, 100)}{s.msg.text.length > 100 ? '…' : ''}</td>
-                    </tr>
-                  ))}
-                </tbody>
-              </table>
-              <CardFoot n={6} />
-            </section>
-          </div>
-        </div>
-      ) : (
-        <section className="card screen-mist chat">
-          <div className="chat-scroll">
-            {msgs.map((m, i) => {
-              const s = i >= sinceIdx ? a.scored[i - sinceIdx] : undefined
-              return (
-                <div key={m.id}>
-                  {i === sinceIdx && <div className="unread-line"><span>{msgs.length - sinceIdx} unread</span></div>}
-                  <div id={`m${m.id}`} className={`bubble ${m.author === me ? 'mine' : ''} ${s ? s.priority : 'read'} ${flashId === m.id ? 'flash' : ''}`}>
-                    <div className="b-head"><b>{m.author}</b><span>{fmtTime(m.ts)}</span></div>
-                    <div>{highlight(m.text, me)}</div>
-                    {s && s.flags.length > 0 && <div className="chips">{s.flags.map((f, k) => <span key={k} className={`chip ${f.kind}`}>{f.label}</span>)}</div>}
+                  <div className="cal-body">
+                    <div className="cal-hours">{cal.hours.map(h => <span key={h} style={{ top: `${((h - cal.startH) / cal.span) * 100}%` }}>{fmtHour(h)}</span>)}</div>
+                    <div className="cal-grid">
+                      {cal.days.map((_, i) => <i key={i} style={{ left: `${(i + 0.5) * (100 / cal.days.length)}%` }} />)}
+                      {cal.chips.length === 0 && <div className="cal-empty">No deadlines in the next 6 days 🎉</div>}
+                      {cal.chips.map(({ s, col, top }) => (
+                        <button
+                          key={s.msg.id}
+                          className={`event ${s.owner === me ? 'mine' : ''} ${done.has(s.msg.id) ? 'done' : ''}`}
+                          style={{ left: `calc(${Math.min(col, cal.days.length - 2) * (100 / cal.days.length)}% + 4px)`, top: `${top}%` }}
+                          onClick={() => jump(s.msg.id)}
+                          title={s.msg.text}
+                        >
+                          <span className="ev-text"><b>{cleanTitle(s.msg.text, people)}</b><small>{s.msg.author} · due {fmtTime(s.deadline!)}</small></span>
+                          <Avatar name={s.msg.author} size={24} />
+                        </button>
+                      ))}
+                    </div>
                   </div>
                 </div>
-              )
-            })}
-          </div>
-          <CardFoot n={7}><button className="details" onClick={() => setTab('brief')}>Back to briefing <span className="circ solid"><Arrow /></span></button></CardFoot>
-        </section>
-      )}
-      <footer>Built local-first · No servers · No tracking · Your chat stays in this tab</footer>
+                <div className="since">
+                  <span>Last read</span>
+                  <input type="range" min={0} max={msgs.length - 1} value={sinceIdx} onChange={e => { setSinceIdx(+e.target.value); resetSummary() }} />
+                  <span>{lastRead ? `${lastRead.author}, ${fmtTime(lastRead.ts)}` : 'start'}</span>
+                </div>
+              </section>
+
+              {/* Hot topics */}
+              <section className="tile span-4 orange-tile">
+                <div className="silhouette">?</div>
+                <h2>Hot <span>topics</span></h2>
+                <div className="orbit">
+                  {topics.map((t, i) => (
+                    <button key={t.word} className="o-pill" style={{ marginLeft: ['6%', '30%', '12%', '26%'][i] }} onClick={() => { setQuery(t.word); setView('chat') }}>
+                      {i % 2 === 1 && <i className="o-dot l" />}{t.word}{i % 2 === 0 && <i className="o-dot r" />}
+                    </button>
+                  ))}
+                  {topics.length === 0 && <span className="o-pill">Nothing yet</span>}
+                </div>
+              </section>
+
+              {/* Inbox + AI */}
+              <div className="span-4 col-stack">
+                <section className="tile">
+                  <div className="tile-head"><h3>Priority inbox</h3><button className="more" onClick={() => setShowFyi(!showFyi)} title="Show chatter">•••</button></div>
+                  <div className="well">
+                    <div className="well-head"><span>{inbox.length} need attention</span><button className="pill-btn sm" onClick={() => setShowFyi(!showFyi)}>{showFyi ? 'Less' : `+${fyi.length} FYI`}</button></div>
+                    <div className="papers">
+                      {[...inbox, ...(showFyi ? fyi : [])].map(s => (
+                        <button key={s.msg.id} className={`paper ${s.priority}`} onClick={() => jump(s.msg.id)}>
+                          <div className="p-head"><b>{s.msg.author}</b><span>{fmtTime(s.msg.ts)}</span></div>
+                          <div className="p-text">{highlight(s.msg.text, me)}</div>
+                          <div className="chips">{s.flags.slice(0, 3).map((f, k) => <span key={k} className={`chip ${f.kind}`}>{f.label}</span>)}</div>
+                        </button>
+                      ))}
+                    </div>
+                  </div>
+                </section>
+
+                <section className="tile ai-tile">
+                  <div className="tile-head">
+                    <div><h3><Icon name="sparkle" size={16} /> AI catch-up</h3><small className="sub">{modelName} · running in this tab</small></div>
+                    {(llm === 'done' || llm === 'error') && <button className="more" onClick={runAI} title="Regenerate"><Icon name="edit" size={16} /></button>}
+                  </div>
+                  {llm === 'unsupported' && <p className="prose dim">No WebGPU in this browser, so the on-device LLM can't run here. Everything else works offline. Use desktop Chrome or Edge for the AI summary.</p>}
+                  {(llm === 'idle' || llm === 'ready') && !summary && <p className="prose dim">{cached ? 'Model cached on this device · works offline. ' : 'First run downloads the model once; after that it works offline. '}Your messages never leave this tab.</p>}
+                  {llm === 'loading' && (
+                    <div className="progress"><div className="bar"><div style={{ width: `${progress.pct}%` }} /></div><small>{progress.text || 'Starting…'}</small></div>
+                  )}
+                  {llm === 'error' && <p className="prose dim err">{progress.text}</p>}
+                  {summary && <Prose text={summary} />}
+                  {llm === 'generating' && <span className="cursor">▍</span>}
+                  {llm === 'done' && <small className="sub">Generated on your device in {(genMs / 1000).toFixed(1)}s</small>}
+                  {(llm === 'idle' || llm === 'ready' || llm === 'error') && (
+                    <div className="ai-actions">
+                      <select className="model" value={modelId} onChange={e => setModelId(e.target.value)} disabled={llm === 'ready'}>
+                        {MODELS.map(m => <option key={m.id} value={m.id}>{m.label}</option>)}
+                      </select>
+                      <button className="btn-orange" onClick={runAI}>Summarize</button>
+                    </div>
+                  )}
+                  {llm === 'generating' && <button className="pill-btn" onClick={() => (cancel.current.cancelled = true)}>Stop</button>}
+                </section>
+              </div>
+
+              {/* Unread + noise gauge */}
+              <div className="span-4 col-stack">
+                <section className="tile score-tile">
+                  <div className="orb" />
+                  <h3>Unread</h3>
+                  <div className="score"><b>{a.stats.unread}</b><span>{a.stats.urgent} urgent<br />{a.stats.mentions} mention you</span></div>
+                  <Dots scored={a.scored} />
+                </section>
+                <section className="tile gauge-tile">
+                  <h3>Noise filtered</h3>
+                  <div className="gauge-wrap">
+                    <Gauge pct={noisePct} />
+                    <div className="gauge-label"><b>{Math.round(noisePct * 100)}%</b><span>was just chatter</span></div>
+                  </div>
+                  <p className="sub center">~{a.stats.minutesSaved} min of reading saved</p>
+                  <button className="btn-orange wide" onClick={() => scrollToId('todos')}>Show what matters</button>
+                </section>
+              </div>
+
+              {/* To-dos */}
+              <section className="tile span-4 todo-tile" id="todos">
+                <div className="tile-head"><div><h3>Your to-dos</h3><small className="sub">Someone named you or asked you directly</small></div><span className="more">•••</span></div>
+                <div className="goal-line"><span>Tasks for you</span><span className="count-chip">{myTodos.length} <Icon name="arrow" size={12} /></span></div>
+                <div className="big-pct"><b>{donePct}</b><span>%</span><small>done</small></div>
+                <div className="mini-dots">{myTodos.map(s => <span key={s.msg.id} className={statusOf(s).cls}><i /><i /><i /><i /><i /><i /></span>)}</div>
+                <div className="rows">
+                  {myTodos.length === 0 && <p className="sub">Nothing assigned to you 🎉</p>}
+                  {myTodos.map(s => {
+                    const st = statusOf(s)
+                    return (
+                      <div key={s.msg.id} className={`row-item ${done.has(s.msg.id) ? 'is-done' : ''}`}>
+                        <span className="tag">{s.msg.author}</span>
+                        <span className="r-text" title={s.msg.text} onClick={() => jump(s.msg.id)}>{cleanTitle(s.msg.text, people)}</span>
+                        <button className={`status ${st.cls}`} onClick={() => toggleDone(s.msg.id)} title="Mark done">{st.label}</button>
+                      </div>
+                    )
+                  })}
+                </div>
+              </section>
+
+              {/* Decisions + others */}
+              <section className="tile span-6">
+                <div className="tile-head"><h3>Decisions made</h3><span className="pill-btn sm">{a.decisions.length}</span></div>
+                <div className="rows">
+                  {a.decisions.length === 0 && <p className="sub">No decisions spotted.</p>}
+                  {a.decisions.map(s => (
+                    <div key={s.msg.id} className="row-item clickable" onClick={() => jump(s.msg.id)}>
+                      <Avatar name={s.msg.author} size={26} />
+                      <span className="r-text wrap">{cleanTitle(s.msg.text, people)}</span>
+                      <span className="status done">{fmtTime(s.msg.ts)}</span>
+                    </div>
+                  ))}
+                </div>
+              </section>
+              <section className="tile span-6">
+                <div className="tile-head"><h3>Others' tasks</h3><span className="pill-btn sm">{otherTodos.length}</span></div>
+                <div className="rows">
+                  {otherTodos.length === 0 && <p className="sub">None.</p>}
+                  {otherTodos.map(s => {
+                    const st = statusOf(s)
+                    return (
+                      <div key={s.msg.id} className="row-item clickable" onClick={() => jump(s.msg.id)}>
+                        <span className="tag">{s.owner ?? 'Unassigned'}</span>
+                        <span className="r-text wrap">{cleanTitle(s.msg.text, people)}</span>
+                        <span className={`status ${st.cls}`}>{st.label}</span>
+                      </div>
+                    )
+                  })}
+                </div>
+              </section>
+            </div>
+          )}
+        </main>
+      </div>
+      {toast}
     </div>
   )
 }
