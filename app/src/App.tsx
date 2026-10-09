@@ -125,7 +125,7 @@ export default function App() {
   const [isDemo, setIsDemo] = useState(true)
   const [showIntro, setShowIntro] = useState(() => {
     if (new URLSearchParams(location.search).has('shared')) return false
-    try { return !localStorage.getItem('wdim-intro-seen') } catch { return true }
+    try { return !sessionStorage.getItem('wdim-intro-seen') } catch { return true }
   })
   const [showPaste, setShowPaste] = useState(false)
   const [showWho, setShowWho] = useState(false)
@@ -197,11 +197,23 @@ export default function App() {
     setMe(who)
     if (!demo && !remembered) { setWhoDraft(chat.me ?? ''); setShowWho(true) }
     setSinceIdx(lastRead ?? defaultSince(parsed, who))
+    setSincePreset(demo ? 'custom' : 'mine')
     setDone(new Set())
     setView('brief')
     setQuery('')
     resetSummary()
     window.scrollTo({ top: 0 })
+  }
+
+  type SincePreset = 'mine' | '1h' | 'today' | '24h' | 'all' | 'custom'
+  const [sincePreset, setSincePreset] = useState<SincePreset>('custom') // the demo opens at a fixed read point
+  function applySince(p: SincePreset) {
+    setSincePreset(p)
+    if (p === 'custom' || !msgs.length) return
+    const end = msgs[msgs.length - 1].ts.getTime()
+    const from = p === 'mine' ? null : p === 'all' ? -Infinity : p === '1h' ? end - 3600000 : p === '24h' ? end - 86400000 : new Date(end).setHours(0, 0, 0, 0)
+    setSinceIdx(from === null ? defaultSince(msgs, me) : Math.max(0, msgs.findIndex(m => m.ts.getTime() >= from)))
+    resetSummary()
   }
 
   // You've read everything up to your own last message; fall back to the last 80% if you never spoke
@@ -263,7 +275,7 @@ export default function App() {
   function closeIntro() {
     setShowIntro(false)
     setShowPaste(false)
-    try { localStorage.setItem('wdim-intro-seen', '1') } catch { /* storage unavailable */ }
+    try { sessionStorage.setItem('wdim-intro-seen', '1') } catch { /* storage unavailable */ }
   }
   useEffect(() => {
     if (!showIntro) return
@@ -444,9 +456,11 @@ export default function App() {
     const diff = Math.round((startOfDay(s.deadline) - startOfDay(a.now)) / DAY)
     return diff <= 0 ? 'Today' : diff === 1 ? 'Tomorrow' : 'Upcoming'
   }
-  const todoGroups = (['Today', 'Tomorrow', 'Upcoming', 'Anytime'] as const)
+  const todoGroupsAll = (['Today', 'Tomorrow', 'Upcoming', 'Anytime'] as const)
     .map(g => ({ g, items: myTodos.filter(s => groupOf(s) === g) }))
     .filter(x => x.items.length)
+  const todoGroups = todoGroupsAll
+  const topTaskId = todoGroups.flatMap(x => x.items).find(s => !done.has(s.msg.id))?.msg.id
 
   const kpis = [
     { label: 'Mentions you', value: a.stats.mentions, unit: 'mentions', footL: 'Asked you a question', footR: String(questions), target: 'inbox' },
@@ -489,7 +503,7 @@ export default function App() {
           {items.map(s => {
             const p = prioOf(s)
             return (
-              <div key={s.msg.id} className={`todo-row ${done.has(s.msg.id) ? 'is-done' : ''}`}>
+              <div key={s.msg.id} className={`todo-row ${done.has(s.msg.id) ? 'is-done' : ''} ${s.msg.id === topTaskId ? 'top' : ''}`}>
                 <button className="tick" onClick={() => toggleDone(s.msg.id)} aria-label="Mark done" />
                 <span className="t-text" title={s.msg.text} onClick={() => jump(s.msg.id)}>
                   <span className="t-title">{cleanTitle(s.msg.text, people)}</span>
@@ -517,6 +531,14 @@ export default function App() {
         {sidebar}
         <main className="main" id="top">
           {topbar}
+          <nav className="num-tabs" aria-label="Views">
+            {([['brief', 'Briefing'], ['insights', 'Insights'], ['chat', 'Full chat']] as const).map(([v, label], i) => (
+              <button key={v} className={view === v ? 'on' : ''} onClick={() => scrollToId('top', v)}>
+                <span className="nt-num">{String(i + 1).padStart(2, '0')}</span>{label}
+              </button>
+            ))}
+            {view === 'chat' && <span className="nt-meta">{msgs.length} messages</span>}
+          </nav>
 
           {view === 'chat' ? (
             <section className="tile chat-tile">
@@ -549,8 +571,20 @@ export default function App() {
               <section className="tile span-8 catchup">
                 <div className="eyebrow">
                   <span className={`pill-btn sm src-${source}`}><i className="src-dot" />{SOURCE_LABEL[source]} · {chatName}</span>
-                  <span>Away {fmtDuration(a.now.getTime() - (lastRead?.ts.getTime() ?? a.now.getTime()))}{lastRead ? ` · last read ${fmtTime(lastRead.ts)}` : ''}</span>
+                  <label className="since-pill" title="What counts as missed">
+                    <Icon name="calendar" size={14} />
+                    <select value={sincePreset} onChange={e => applySince(e.target.value as SincePreset)}>
+                      <option value="mine">Since my last message</option>
+                      <option value="1h">Last hour</option>
+                      <option value="today">Today</option>
+                      <option value="24h">Last 24 hours</option>
+                      <option value="all">Everything</option>
+                      {sincePreset === 'custom' && <option value="custom">Since {lastRead ? fmtTime(lastRead.ts) : 'start'}</option>}
+                    </select>
+                    <span className="sp-range">{lastRead ? fmtTime(lastRead.ts) : 'start'} → {fmtTime(a.now)} · away {fmtDuration(a.now.getTime() - (lastRead?.ts.getTime() ?? a.now.getTime()))}</span>
+                  </label>
                 </div>
+                {myName !== 'You' && <div className="greeting">Hi {myName.split(/\s+/)[0]} 👋</div>}
                 <h1>You missed {a.stats.unread} messages.<br /><span>{openTasks ? `${openTasks} need${openTasks === 1 ? 's' : ''} you.` : 'Nothing needs you.'}</span></h1>
                 <div className="facts">
                   <span><b>{due24.length}</b> due in 24h</span>
@@ -653,7 +687,7 @@ export default function App() {
                 )}
                 <div className="since">
                   <span>Last read</span>
-                  <input type="range" min={0} max={msgs.length - 1} value={sinceIdx} onChange={e => { setSinceIdx(+e.target.value); resetSummary() }} />
+                  <input type="range" min={0} max={msgs.length - 1} value={sinceIdx} onChange={e => { setSinceIdx(+e.target.value); setSincePreset('custom'); resetSummary() }} />
                   <span>{lastRead ? `${lastRead.author}, ${fmtTime(lastRead.ts)}` : 'start'}</span>
                 </div>
               </section>

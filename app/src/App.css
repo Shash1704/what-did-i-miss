@@ -599,3 +599,50 @@ button.me:hover .avatar { box-shadow: 0 0 0 2px var(--orange); }
 .src-whatsapp .src-dot { background: #25d366; }
 .src-telegram .src-dot { background: #2aabee; }
 .src-demo .src-dot { background: var(--orange); }
+
+/* =========================================================
+   Numbered view tabs · "Since you left" picker · greeting · top task
+   ========================================================= */
+.num-tabs { display: flex; align-items: center; gap: 22px; padding: 0 4px; margin: -4px 0 -2px; flex-wrap: wrap; }
+.num-tabs button {
+  display: inline-flex; align-items: center; gap: 8px; padding: 4px 0; border: 0; background: none;
+  color: var(--muted); font-size: 14px; font-weight: 500; transition: color .2s;
+}
+.num-tabs button:hover { color: #e8ded7; }
+.num-tabs button.on { color: var(--text); }
+.nt-num {
+  display: inline-grid; place-items: center; width: 26px; height: 26px; border-radius: 50%; font-size: 10.5px; font-weight: 600;
+  border: 1px solid rgba(255, 255, 255, .18); color: inherit;
+}
+.num-tabs button.on .nt-num { background: var(--orange); border-color: var(--orange); color: #1b0f09; }
+.nt-meta { margin-left: auto; font-size: 12px; color: var(--muted); }
+
+.since-pill {
+  position: relative; display: inline-flex; align-items: center; gap: 8px; height: 30px; padding: 0 12px; border-radius: 999px;
+  background: rgba(255, 255, 255, .06); border: 1px solid var(--line); color: #e2d8d1; font-size: 12.5px; cursor: pointer;
+}
+.since-pill:hover { border-color: rgba(255, 122, 47, .5); }
+.since-pill svg { color: var(--orange); flex-shrink: 0; }
+.since-pill select {
+  appearance: none; background: none; border: 0; outline: 0; padding: 0 14px 0 0; font-size: 12.5px; font-weight: 600; color: var(--text); cursor: pointer;
+  background-image: linear-gradient(45deg, transparent 50%, var(--muted) 50%), linear-gradient(135deg, var(--muted) 50%, transparent 50%);
+  background-position: right 4px center, right 0 center; background-size: 4px 4px; background-repeat: no-repeat;
+}
+.since-pill select option { color: #111; }
+.sp-range { color: var(--muted); padding-left: 8px; border-left: 1px solid var(--line); white-space: nowrap; }
+
+.greeting { margin-top: 18px; font-size: 16px; color: #d8cec7; }
+.greeting + h1 { margin-top: 6px; }
+
+.todo-row.top {
+  margin: 4px -8px; padding: 10px 8px; border-radius: 12px; background: #f6f1ec; color: #1b130f;
+  box-shadow: 0 10px 24px -14px rgba(0, 0, 0, .9);
+}
+.todo-row.top .t-text small { color: #6b5d55; }
+.todo-row.top .tick { border-color: #1b130f; }
+.todo-row.top .prio.high { color: #d4521a; }
+
+@media (max-width: 760px) {
+  .sp-range { display: none; }
+  .num-tabs { gap: 14px; }
+}
