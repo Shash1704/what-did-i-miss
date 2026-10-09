@@ -593,3 +593,9 @@ button.me:hover .avatar { box-shadow: 0 0 0 2px var(--orange); }
 .who-pop small { display: block; font-size: 11.5px; line-height: 1.45; color: var(--muted); }
 .who-actions { display: flex; justify-content: flex-end; gap: 10px; margin-top: 16px; }
 .who-actions .btn-ghost, .who-actions .btn-orange { height: 38px; padding: 0 16px; font-size: 14px; border-radius: 11px; }
+
+/* Source badge (WhatsApp / Telegram / …) */
+.src-dot { width: 7px; height: 7px; border-radius: 50%; margin-right: 7px; background: var(--muted); }
+.src-whatsapp .src-dot { background: #25d366; }
+.src-telegram .src-dot { background: #2aabee; }
+.src-demo .src-dot { background: var(--orange); }

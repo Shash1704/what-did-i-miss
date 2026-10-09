@@ -1,5 +1,12 @@
-// Reads a chat export from a .txt or a .zip (iOS WhatsApp exports "_chat.txt" inside a zip).
+// Reads a chat export and detects its source:
+//   WhatsApp .txt / .zip (iOS puts "_chat.txt" inside a zip), Telegram Desktop result.json / messages.html.
 // Zip extraction uses the browser's built-in DecompressionStream, so no dependency and no upload.
+
+import { parseChat, type Message } from './parser'
+import { looksLikeTelegramHtml, looksLikeTelegramJson, parseTelegramHtml, parseTelegramJson } from './telegram'
+
+export type ChatSource = 'whatsapp' | 'telegram' | 'text'
+export interface LoadedChat { name: string; messages: Message[]; source: ChatSource; me?: string }
 
 const decoder = new TextDecoder('utf-8')
 
@@ -52,16 +59,31 @@ export function chatNameFromFile(filename: string): string {
     .trim() || 'WhatsApp chat'
 }
 
-export async function readChatFile(file: Blob, filename: string): Promise<{ text: string; name: string }> {
+export async function readChatFile(file: Blob, filename: string): Promise<LoadedChat> {
   const buf = await file.arrayBuffer()
   const head = new Uint8Array(buf, 0, Math.min(4, buf.byteLength))
   const isZip = head[0] === 0x50 && head[1] === 0x4b && head[2] === 0x03 && head[3] === 0x04
-  const text = isZip ? await extractChatFromZip(buf) : decoder.decode(buf)
-  return { text, name: chatNameFromFile(filename) }
+  if (isZip) return { name: chatNameFromFile(filename), messages: parseChat(await extractChatFromZip(buf)), source: 'whatsapp' }
+
+  const text = decoder.decode(buf).replace(/^\uFEFF/, '')
+  const trimmed = text.trimStart()
+  if (trimmed.startsWith('{')) {
+    let data: unknown
+    try { data = JSON.parse(text) } catch { throw new Error('That JSON file is not valid') }
+    if (looksLikeTelegramJson(data)) return { ...parseTelegramJson(data), source: 'telegram' }
+    throw new Error('Unrecognised JSON. For Telegram, export from Telegram Desktop as JSON (result.json)')
+  }
+  if (/^<!DOCTYPE html|^<html/i.test(trimmed)) {
+    if (looksLikeTelegramHtml(text)) return { ...parseTelegramHtml(text), source: 'telegram' }
+    throw new Error('Unrecognised HTML file. For Telegram, open messages.html from the export folder')
+  }
+  const messages = parseChat(text)
+  const timestamped = /^\u200e?\[?\d{1,2}[/.-]\d{1,2}[/.-]\d{2,4}/m.test(text)
+  return { name: chatNameFromFile(filename), messages, source: timestamped ? 'whatsapp' : 'text' }
 }
 
 /** Picks up a chat shared into the installed app via WhatsApp's share sheet (see public/sw.js). */
-export async function takeSharedChat(): Promise<{ text: string; name: string } | null> {
+export async function takeSharedChat(): Promise<LoadedChat | null> {
   if (!('caches' in window)) return null
   const cache = await caches.open('wdim-share')
   const res = await cache.match('shared')

@@ -3,7 +3,7 @@ import { parseChat, participants, type Message } from './lib/parser'
 import { analyze, fmtWhen, type Scored } from './lib/analyze'
 import { MODELS, hasWebGPU, isCached, loadModel, summarize } from './lib/llm'
 import { buildDemoChat, DEMO_ME, DEMO_LAST_READ, DEMO_NAME } from './data/demo'
-import { readChatFile, takeSharedChat } from './lib/importFile'
+import { readChatFile, takeSharedChat, type ChatSource, type LoadedChat } from './lib/importFile'
 import { cleanTitle, deadlineCalendar, hotTopics, hueFor, initials } from './lib/insights'
 import ActivityChart from './components/ActivityChart'
 import { displayName, isMe, mentionPattern, nameSuggestions } from './lib/identity'
@@ -22,6 +22,8 @@ function useInstallPrompt() {
   }, [])
   return evt ? () => evt.prompt().finally(() => setEvt(null)) : null
 }
+
+const SOURCE_LABEL: Record<string, string> = { demo: 'Demo', whatsapp: 'WhatsApp', telegram: 'Telegram', text: 'Pasted' }
 
 type LlmState = 'idle' | 'loading' | 'ready' | 'generating' | 'done' | 'error' | 'unsupported'
 type View = 'brief' | 'insights' | 'chat'
@@ -115,7 +117,8 @@ function highlight(text: string, identity: string, query = '') {
 
 export default function App() {
   // The app always opens on the demo chat so it's functional from the first second
-  const [raw, setRaw] = useState<string>(() => buildDemoChat())
+  const [msgs, setMsgs] = useState<Message[]>(() => parseChat(buildDemoChat()))
+  const [source, setSource] = useState<ChatSource | 'demo'>('demo')
   const [chatName, setChatName] = useState(DEMO_NAME)
   const [me, setMe] = useState(DEMO_ME)
   const [sinceIdx, setSinceIdx] = useState(DEMO_LAST_READ)
@@ -152,12 +155,11 @@ export default function App() {
     if (!new URLSearchParams(location.search).has('shared')) return
     history.replaceState(null, '', location.pathname)
     takeSharedChat()
-      .then(chat => { if (chat) { open(chat.text, chat.name); setSharedNotice(true); setTimeout(() => setSharedNotice(false), 5000) } })
+      .then(chat => { if (chat) { open(chat); setSharedNotice(true); setTimeout(() => setSharedNotice(false), 5000) } })
       .catch(err => alert(`Couldn't read the shared chat: ${err.message}`))
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [])
 
-  const msgs: Message[] = useMemo(() => (raw ? parseChat(raw) : []), [raw])
   const people = useMemo(() => participants(msgs), [msgs])
   const a = useMemo(() => (msgs.length ? analyze(msgs, me, sinceIdx, people) : null), [msgs, me, sinceIdx, people])
   const myName = displayName(me)
@@ -170,20 +172,23 @@ export default function App() {
     if (llm === 'done') setLlm('ready')
   }
 
-  function open(text: string, name: string, meGuess?: string, lastRead?: number, demo = false) {
-    const parsed = parseChat(text)
-    if (!parsed.length) { alert("Couldn't find any messages. Paste a WhatsApp export or lines like \"Name: message\"."); return }
+  function open(chat: LoadedChat | (Omit<LoadedChat, 'source'> & { source: 'demo' }), meGuess?: string, lastRead?: number) {
+    const parsed = chat.messages
+    const demo = chat.source === 'demo'
+    if (!parsed.length) { alert("Couldn't find any messages. Use a WhatsApp or Telegram export, or paste lines like \"Name: message\"."); return }
     const ppl = participants(parsed)
-    setRaw(text)
-    setChatName(name)
+    setMsgs(parsed)
+    setSource(chat.source)
+    setChatName(chat.name)
     setIsDemo(demo)
     if (!demo) closeIntro()
     let remembered: string | null = null
     try { remembered = localStorage.getItem('wdim-identity') } catch { /* storage unavailable */ }
     // Your identity is free text and needn't be a poster in this chat; ask once if we don't know it
-    const who = meGuess && ppl.includes(meGuess) ? meGuess : remembered ?? ''
+    // Telegram full-account exports include your own name, which we use as a starting suggestion
+    const who = meGuess && ppl.includes(meGuess) ? meGuess : remembered ?? chat.me ?? ''
     setMe(who)
-    if (!demo && !remembered) { setWhoDraft(''); setShowWho(true) }
+    if (!demo && !remembered) { setWhoDraft(chat.me ?? ''); setShowWho(true) }
     setSinceIdx(lastRead ?? defaultSince(parsed, who))
     setDone(new Set())
     setView('brief')
@@ -200,7 +205,7 @@ export default function App() {
 
   function onFile(f: File) {
     readChatFile(f, f.name)
-      .then(chat => open(chat.text, chat.name))
+      .then(chat => open(chat))
       .catch(err => alert(`Couldn't read that file: ${err.message}`))
   }
 
@@ -237,7 +242,7 @@ export default function App() {
   }
 
   const toggleDone = (id: number) => setDone(d => { const n = new Set(d); if (n.has(id)) n.delete(id); else n.add(id); return n })
-  const loadDemo = () => open(buildDemoChat(), DEMO_NAME, DEMO_ME, DEMO_LAST_READ, true)
+  const loadDemo = () => open({ name: DEMO_NAME, messages: parseChat(buildDemoChat()), source: 'demo' }, DEMO_ME, DEMO_LAST_READ)
   function closeIntro() {
     setShowIntro(false)
     setShowPaste(false)
@@ -284,7 +289,7 @@ export default function App() {
         <button className={online ? 'safe' : 'offline'} title={online ? 'Processed on this device · 0 bytes sent' : 'Offline · still working'}><Icon name="shield" /></button>
         {!isDemo && <button onClick={loadDemo} title="Back to the demo chat"><Icon name="exit" /></button>}
       </nav>
-      <input ref={fileInput} type="file" accept=".txt,.zip,text/plain,application/zip" hidden onChange={e => { if (e.target.files?.[0]) onFile(e.target.files[0]); e.target.value = '' }} />
+      <input ref={fileInput} type="file" accept=".txt,.zip,.json,.html,text/plain,application/zip,application/json,text/html" hidden onChange={e => { if (e.target.files?.[0]) onFile(e.target.files[0]); e.target.value = '' }} />
     </aside>
   )
 
@@ -373,10 +378,10 @@ export default function App() {
         {showPaste && (
           <div className="intro-paste">
             <textarea className="paste" value={paste} onChange={e => setPaste(e.target.value)} placeholder={'Ananya: @Shashwat can you send the deck by 5pm?\nRohan: venue is final, main auditorium'} autoFocus />
-            <button className="btn-orange wide" disabled={!paste.trim()} onClick={() => open(paste, 'Pasted chat')}>Analyze</button>
+            <button className="btn-orange wide" disabled={!paste.trim()} onClick={() => open({ name: 'Pasted chat', messages: parseChat(paste), source: 'text' })}>Analyze</button>
           </div>
         )}
-        <small className="intro-tip">Tip: drop a WhatsApp export (.txt or .zip) anywhere on the page. On Android, share it straight to <b>Missed?</b></small>
+        <small className="intro-tip">Works with <b>WhatsApp</b> (.txt / .zip export) and <b>Telegram Desktop</b> (Export chat history → result.json or messages.html). Drop the file anywhere on the page. On Android, share a WhatsApp export straight to <b>Missed?</b></small>
       </div>
     </div>
   )
@@ -526,7 +531,7 @@ export default function App() {
             <div className="bento brief">
               <section className="tile span-8 catchup">
                 <div className="eyebrow">
-                  <span className="pill-btn sm">{chatName}</span>
+                  <span className={`pill-btn sm src-${source}`}><i className="src-dot" />{SOURCE_LABEL[source]} · {chatName}</span>
                   <span>Away {fmtDuration(a.now.getTime() - (lastRead?.ts.getTime() ?? a.now.getTime()))}{lastRead ? ` · last read ${fmtTime(lastRead.ts)}` : ''}</span>
                 </div>
                 <h1>You missed {a.stats.unread} messages.<br /><span>{openTasks ? `${openTasks} need${openTasks === 1 ? 's' : ''} you.` : 'Nothing needs you.'}</span></h1>
@@ -729,7 +734,7 @@ export default function App() {
       </div>
       {toast}
       {intro}
-      {dragging && <div className="drop-overlay"><Icon name="upload" size={40} /><b>Drop your chat export</b><small>.txt or .zip, processed on this device</small></div>}
+      {dragging && <div className="drop-overlay"><Icon name="upload" size={40} /><b>Drop your chat export</b><small>WhatsApp .txt / .zip · Telegram result.json / messages.html · processed on this device</small></div>}
     </div>
   )
 }
