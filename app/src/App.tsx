@@ -240,7 +240,7 @@ export default function App() {
           <div className="col">
             <section className="panel ai">
               <div className="panel-head">
-                <h3>🧠 AI briefing <small>on-device LLM</small></h3>
+                <h3>🧠 AI catch-up <small>on-device LLM</small></h3>
                 {(llm === 'idle' || llm === 'ready' || llm === 'done' || llm === 'error') && (
                   <div className="ai-controls">
                     <select value={modelId} onChange={e => setModelId(e.target.value)} disabled={llm === 'ready' || llm === 'done'}>
