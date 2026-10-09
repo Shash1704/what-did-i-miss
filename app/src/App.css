@@ -285,3 +285,18 @@ mark { background: var(--ink); color: #f3e7dc; border-radius: 999px; padding: 0 
   .giant { font-size: 110px; }
   .tab-meta { display: none; }
 }
+
+/* Install button + share toast */
+.install {
+  display: inline-flex; align-items: center; gap: 6px; background: var(--page-ink); color: var(--ink); border: 0;
+  border-radius: 999px; padding: 6px 14px; font-size: 12px; font-weight: 600; letter-spacing: .02em;
+}
+.toast {
+  position: fixed; left: 50%; bottom: 24px; transform: translateX(-50%); z-index: 50;
+  display: flex; align-items: center; gap: 10px; background: #fff; color: var(--ink);
+  border-radius: 999px; padding: 10px 18px; font-size: 14px; box-shadow: 0 20px 50px -20px rgba(0, 0, 0, .7);
+  animation: toast-in .4s ease-out;
+}
+.toast .dot { width: 8px; height: 8px; border-radius: 50%; background: var(--good); }
+@keyframes toast-in { from { opacity: 0; transform: translate(-50%, 12px); } }
+.split-cap b { font-weight: 600; }

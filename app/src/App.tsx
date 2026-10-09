@@ -3,7 +3,22 @@ import { parseChat, participants, type Message } from './lib/parser'
 import { analyze, fmtWhen, type Scored, type Priority } from './lib/analyze'
 import { MODELS, hasWebGPU, isCached, loadModel, summarize } from './lib/llm'
 import { buildDemoChat, DEMO_ME, DEMO_LAST_READ, DEMO_NAME } from './data/demo'
+import { readChatFile, takeSharedChat } from './lib/importFile'
 import './App.css'
+
+interface InstallPrompt extends Event { prompt: () => Promise<void> }
+
+function useInstallPrompt() {
+  const [evt, setEvt] = useState<InstallPrompt | null>(null)
+  useEffect(() => {
+    const on = (e: Event) => { e.preventDefault(); setEvt(e as InstallPrompt) }
+    const installed = () => setEvt(null)
+    window.addEventListener('beforeinstallprompt', on)
+    window.addEventListener('appinstalled', installed)
+    return () => { window.removeEventListener('beforeinstallprompt', on); window.removeEventListener('appinstalled', installed) }
+  }, [])
+  return evt ? () => evt.prompt().finally(() => setEvt(null)) : null
+}
 
 type LlmState = 'idle' | 'loading' | 'ready' | 'generating' | 'done' | 'error' | 'unsupported'
 
@@ -99,6 +114,18 @@ export default function App() {
   const [genMs, setGenMs] = useState(0)
   const cancel = useRef({ cancelled: false })
   const online = useOnline()
+  const install = useInstallPrompt()
+  const [sharedNotice, setSharedNotice] = useState(false)
+
+  // Chat shared into the installed app from WhatsApp's share sheet (handled locally by sw.js)
+  useEffect(() => {
+    if (!new URLSearchParams(location.search).has('shared')) return
+    history.replaceState(null, '', location.pathname)
+    takeSharedChat()
+      .then(chat => { if (chat) { open(chat.text, chat.name); setSharedNotice(true); setTimeout(() => setSharedNotice(false), 5000) } })
+      .catch(err => alert(`Couldn't read the shared chat: ${err.message}`))
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [])
 
   const msgs: Message[] = useMemo(() => (raw ? parseChat(raw) : []), [raw])
   const people = useMemo(() => participants(msgs), [msgs])
@@ -117,7 +144,9 @@ export default function App() {
     const ppl = participants(parsed)
     setRaw(text)
     setChatName(name)
-    setMe(meGuess && ppl.includes(meGuess) ? meGuess : ppl[0])
+    let remembered: string | null = null
+    try { remembered = localStorage.getItem('wdim-me') } catch { /* storage unavailable */ }
+    setMe(meGuess && ppl.includes(meGuess) ? meGuess : remembered && ppl.includes(remembered) ? remembered : ppl[0])
     setSinceIdx(lastRead ?? Math.floor(parsed.length * 0.2))
     setDone(new Set())
     setTab('brief')
@@ -126,7 +155,9 @@ export default function App() {
   }
 
   function onFile(f: File) {
-    f.text().then(t => open(t, f.name.replace(/^WhatsApp Chat with /i, '').replace(/\.txt$/i, '')))
+    readChatFile(f, f.name)
+      .then(chat => open(chat.text, chat.name))
+      .catch(err => alert(`Couldn't read that file: ${err.message}`))
   }
 
   async function runAI() {
@@ -169,7 +200,11 @@ export default function App() {
       <div className="page">
         <header className="nav">
           {brand}
-          <div className="nav-right">{badge}<span className="menu"><i /><i />MENU</span></div>
+          <div className="nav-right">
+            {badge}
+            {install && <button className="install" onClick={install}>Install app <Arrow dir="down" /></button>}
+            <span className="menu"><i /><i />MENU</span>
+          </div>
         </header>
 
         <section className="card screen-mist hero">
@@ -196,12 +231,12 @@ export default function App() {
           >
             <h2>Drop your<br />chat export <Arrow dir="diag" /></h2>
             <div className="split-cap">
-              <p>WhatsApp → open a chat → ⋮ → More → Export chat → Without media.</p>
-              <p>Drag the .txt file here, or browse your files.</p>
+              <p><b>Android:</b> install this app, then in WhatsApp open a chat → ⋮ → More → Export chat → share to <b>Missed?</b></p>
+              <p><b>iPhone / desktop:</b> Export chat → Save to Files, then drop the .txt or .zip here.</p>
             </div>
             <label className="rule-row as-label">
               <span>Browse files</span><Arrow />
-              <input type="file" accept=".txt,text/plain" hidden onChange={e => e.target.files?.[0] && onFile(e.target.files[0])} />
+              <input type="file" accept=".txt,.zip,text/plain,application/zip" hidden onChange={e => e.target.files?.[0] && onFile(e.target.files[0])} />
             </label>
             <CardFoot n={2} />
           </section>
@@ -272,7 +307,7 @@ export default function App() {
         <div className="nav-right">
           {badge}
           <label className="me">I am
-            <select value={me} onChange={e => { setMe(e.target.value); resetSummary() }}>
+            <select value={me} onChange={e => { setMe(e.target.value); resetSummary(); try { localStorage.setItem('wdim-me', e.target.value) } catch { /* storage unavailable */ } }}>
               {people.map(p => <option key={p}>{p}</option>)}
             </select>
           </label>
@@ -280,6 +315,7 @@ export default function App() {
         </div>
       </header>
 
+      {sharedNotice && <div className="toast"><span className="dot" />Received from WhatsApp · processed on this device only</div>}
       <section className="card screen-mist overview">
         <div className="ov-left">
           <h1 className="ov-title">You missed<br />{a.stats.unread} messages</h1>
