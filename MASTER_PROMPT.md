@@ -54,9 +54,10 @@ You are a senior full-stack engineer at a 3-hour hackathon. Build a polished, de
 - **Installable** app with an icon.
 
 ## 7. Quality
-- **Layered architecture**: pure `core/` (no React, no I/O), `services/` (storage, import, LLM, Telegram), `hooks/` (state orchestration), `components/` (layout, views, overlays, ui), with a ~200-line `App.tsx` composition root. One fail-safe storage layer. Lazy-load the secondary views. Document it in `ARCHITECTURE.md` (layers, data flow, ADRs, performance) and `SECURITY.md` (threat model, stored data, allowed network).
+- **Layered architecture**: pure `core/` (no React, no I/O), `services/` (storage, import, LLM, Telegram), `hooks/` (state orchestration), `components/` (layout, views, overlays, ui), with a ~200-line `App.tsx` composition root. One fail-safe storage layer.
+- **Engine API** (`src/engine/`, versioned `1.0.0`): the UI reaches the domain only through `importChat` and `analyzeChat`, which **validate input**, return a typed `Result<T>` instead of throwing, and use stable error codes (`INVALID_INPUT`, `EMPTY_CHAT`, `FILE_TOO_LARGE`, `UNSUPPORTED_FORMAT`, `INTERNAL`). Shape-check all untrusted network data (Telegram Bot API responses). Document the contract in `ENGINE_API.md`. Lazy-load the secondary views. Document it in `ARCHITECTURE.md` (layers, data flow, ADRs, performance) and `SECURITY.md` (threat model, stored data, allowed network).
 - **TypeScript strict** and **oxlint** (correctness, suspicious, perf, React hooks, no import cycles, no `any`).
-- **Vitest** (44 tests): parsers (WhatsApp, Telegram, date order), identity, the rule engine, follow-ups, the briefing view-model, calendar export, merging, storage, import safety, bot-token extraction, plus a **performance budget** (10,000 messages parsed and analysed in about 0.2 s).
+- **Vitest** (48 tests): parsers (WhatsApp, Telegram, date order), identity, the rule engine, follow-ups, the briefing view-model, calendar export, merging, storage, import safety, bot-token extraction, the engine API (validation and every error code), plus a **performance budget** (10,000 messages parsed and analysed in about 0.2 s).
 - An **accuracy harness** with hand-labelled chats (the dev set, an English held-out set with traps, and a Hinglish held-out set) reporting precision / recall / F1 per detector. Publish the numbers **with caveats** in `ACCURACY.md`.
 - **GitHub Actions**: a `verify` job (type-check → lint → tests → `npm audit`) must pass before the `deploy` job builds and publishes to GitHub Pages.
 
