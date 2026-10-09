@@ -11,7 +11,7 @@ export function myNames(identity: string): string[] {
 /** Display name: the first non-phone alias. */
 export function displayName(identity: string): string {
   const names = myNames(identity)
-  return names.find(n => !isPhone(n)) ?? names[0] ?? 'You'
+  return names.find(n => !isPhone(n) && /\p{L}/u.test(n)) ?? names.find(n => isPhone(n)) ?? 'You'
 }
 
 export function isMe(author: string, identity: string): boolean {

@@ -107,7 +107,7 @@ function Gauge({ pct }: { pct: number }) {
 
 /** Bold the facts (times, days, deadlines) inside AI prose so it scans fast. */
 function Prose({ text }: { text: string }) {
-  const clean = text.replace(/\*\*/g, '').replace(/^#+\s*/gm, '').replace(/^\s*[-*•]\s+/gm, '').trim()
+  const clean = text.replace(/\*\*/g, '').replace(/^#+\s*/gm, '').replace(/^\s*[-*•]\s+/gm, '').replace(/[[\]]/g, '').trim()
   const re = /(\b\d{1,2}(?::\d{2})?\s?(?:am|pm)\b|\b(?:today|tonight|tomorrow|monday|tuesday|wednesday|thursday|friday|saturday|sunday|asap|urgent(?:ly)?|deadline)\b|₹\s?\d+)/gi
   return <p className="prose">{clean.split(re).map((p, i) => (i % 2 ? <b key={i}>{p}</b> : p))}</p>
 }
@@ -784,8 +784,8 @@ export default function App() {
                     <span className="sp-range">{lastRead ? fmtTime(lastRead.ts) : 'start'} → {fmtTime(a.now)} · away {fmtDuration(a.now.getTime() - (lastRead?.ts.getTime() ?? a.now.getTime()))}</span>
                   </label>
                 </div>
-                {myName !== 'You' && <div className="greeting">Hi {myName.split(/\s+/)[0]} 👋</div>}
-                <h1>You missed {a.stats.unread} messages.<br /><span>{openTasks ? `${openTasks} need${openTasks === 1 ? 's' : ''} you.` : 'Nothing needs you.'}</span></h1>
+                {/\p{L}/u.test(myName) && myName !== 'You' && <div className="greeting">Hi {myName.split(/\s+/)[0]} 👋</div>}
+                <h1>You missed {a.stats.unread} message{a.stats.unread === 1 ? '' : 's'}.<br /><span>{openTasks ? `${openTasks} need${openTasks === 1 ? 's' : ''} you.` : 'Nothing needs you.'}</span></h1>
                 <div className="facts">
                   <span><b>{due24.length}</b> due in 24h</span>
                   <span><b>{a.decisions.length}</b> decisions</span>

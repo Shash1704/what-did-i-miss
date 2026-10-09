@@ -1,5 +1,5 @@
 import type { MLCEngineInterface, InitProgressReport } from '@mlc-ai/web-llm'
-import { fmtWhen, type Analysis } from './analyze'
+import type { Analysis } from './analyze'
 
 export const MODELS = [
   { id: 'Qwen2.5-1.5B-Instruct-q4f16_1-MLC', label: 'Qwen 2.5 · 1.5B (smart, ~1 GB)' },
@@ -94,28 +94,44 @@ export function isLoaded() {
 function buildPrompt(a: Analysis, me: string): string {
   // Small on-device models do best with a narrow task over pre-extracted, grounded facts.
   // Each fact carries its sender and an absolute deadline, so the model neither swaps names
-  // nor repeats stale relative words ("tomorrow") from old messages.
-  const important = a.scored.filter(s => s.score >= 3).sort((x, y) => y.score - x.score).slice(0, 8)
+  // nor repeats stale relative words ("tomorrow"). Busy chats get only the flagged facts (extra
+  // context confuses a 1.5B model); quiet chats get the actual recent messages, so the model
+  // summarises what was said instead of inventing tasks.
   const now = a.now.toLocaleString(undefined, { weekday: 'long', hour: 'numeric', minute: '2-digit' })
+  const due = (d: Date) => d.toLocaleString(undefined, { weekday: 'short', hour: 'numeric', minute: '2-digit' })
+  const important = a.scored.filter(s => s.score >= 3).sort((x, y) => y.score - x.score).slice(0, 5)
   const facts = important.map((s, i) => {
     const forMe = s.owner === me ? ' [asks YOU]' : s.owner ? ` [for ${s.owner}]` : ''
-    const due = s.deadline ? ` [deadline: ${fmtWhen(s.deadline, a.now)}]` : ''
-    return `${i + 1}. ${s.msg.author} wrote${forMe}${due}: ${s.msg.text.replace(/\n/g, ' ').slice(0, 200)}`
+    const dl = s.deadline ? ` [deadline: ${due(s.deadline)}]` : ''
+    return `${i + 1}. ${s.msg.author} wrote${forMe}${dl}: ${s.msg.text.replace(/\n/g, ' ').slice(0, 200)}`
   }).join('\n')
+  const shown = new Set(important.map(s => s.msg.id))
+  const recent = a.scored.filter(s => !shown.has(s.msg.id)).slice(-12)
+    .map(s => `- ${s.msg.author}: ${s.msg.text.replace(/\n/g, ' ').slice(0, 160)}`).join('\n')
+  const rules = `Rules: talk to me as "you" and start with the word "You". Only use facts from the messages above; never invent deadlines, times, tasks or names. When you say who asked, use the name at the start of that same line. No greetings, bullet points, quotes, brackets or headings.`
+
+  if (!important.length) {
+    return `It is now ${now}. I am ${me}. I missed ${a.unread.length} message${a.unread.length === 1 ? '' : 's'} in my group chat:
+
+${recent || '(no messages)'}
+
+None of these need me. In 1 or 2 plain sentences (under 40 words), tell me what was said and that nothing needs my action.
+${rules}`
+  }
 
   return `It is now ${now}. I am ${me}. I missed ${a.unread.length} messages in my group chat. The important ones, most urgent first:
 
-${facts || '- nothing important'}
-
+${facts}
+${important.length < 3 && recent ? `\nThe other messages, for context only:\n${recent}\n` : ''}
 Write a TL;DR for me in 2 or 3 plain sentences (under 70 words). Start with the most urgent thing I must do and its deadline, then the key decisions.
-Rules: talk to me as "you" and start with the word "You". When you say who asked, use the name at the start of that same numbered line. State deadlines using the [deadline: …] times, not words like "tomorrow" from the messages. No greetings, bullet points, quotes, brackets or headings.`
+${rules} State deadlines using the [deadline: …] times, not words like "tomorrow" from the messages.`
 }
 
 export async function summarize(a: Analysis, me: string, onToken: (full: string) => void, signal?: { cancelled: boolean }) {
   if (!engine) throw new Error('Model not loaded')
   const stream = await engine.chat.completions.create({
     stream: true,
-    temperature: 0.1,
+    temperature: 0, // deterministic: the most likely wording, no creative drift
     frequency_penalty: 0.6,
     presence_penalty: 0.3,
     max_tokens: 160,
