@@ -14,11 +14,26 @@ export function hasWebGPU(): boolean {
   return typeof navigator !== 'undefined' && 'gpu' in navigator
 }
 
+let worker: Worker | null = null
+
 export async function loadModel(id: string, onProgress: (r: InitProgressReport) => void) {
   if (engine && loadedId === id) return engine
   const webllm = await import('@mlc-ai/web-llm')
-  if (engine) await engine.unload()
-  engine = await webllm.CreateMLCEngine(id, { initProgressCallback: onProgress })
+  if (engine) {
+    engine.setInitProgressCallback(onProgress)
+    await engine.reload(id)
+  } else {
+    try {
+      // Preferred: a Web Worker keeps model loading and token generation off the UI thread
+      worker ??= new Worker(new URL('./llm.worker.ts', import.meta.url), { type: 'module' })
+      engine = await webllm.CreateWebWorkerMLCEngine(worker, id, { initProgressCallback: onProgress })
+    } catch (err) {
+      console.warn('LLM worker unavailable, running on the main thread', err)
+      worker?.terminate()
+      worker = null
+      engine = await webllm.CreateMLCEngine(id, { initProgressCallback: onProgress })
+    }
+  }
   loadedId = id
   return engine
 }
