@@ -23,7 +23,7 @@ function useInstallPrompt() {
 }
 
 type LlmState = 'idle' | 'loading' | 'ready' | 'generating' | 'done' | 'error' | 'unsupported'
-type View = 'brief' | 'chat'
+type View = 'brief' | 'insights' | 'chat'
 
 function useOnline() {
   const [online, setOnline] = useState(navigator.onLine)
@@ -61,6 +61,7 @@ const ICONS = {
   edit: 'M4 20h4L19 9l-4-4L4 16zM13 7l4 4',
   arrow: 'M7 17L17 7M9 7h8v8',
   sparkle: 'M12 3l2 6 6 2-6 2-2 6-2-6-6-2 6-2z',
+  chart: 'M4 20V11M10 20V5M16 20v-7M21 20H3',
 }
 function Icon({ name, size = 20 }: { name: keyof typeof ICONS; size?: number }) {
   return (
@@ -217,8 +218,8 @@ export default function App() {
     setTimeout(() => setFlashId(null), 2500)
   }
 
-  function scrollToId(id: string) {
-    setView('brief')
+  function scrollToId(id: string, v: View = 'insights') {
+    setView(v)
     setTimeout(() => document.getElementById(id)?.scrollIntoView({ behavior: 'smooth', block: 'start' }), 60)
   }
 
@@ -243,9 +244,10 @@ export default function App() {
     <aside className="sidebar">
       <button className="logo" onClick={() => setShowIntro(true)} title="About this app"><img src="./icons/icon-192.png" alt="" /></button>
       <nav className="rail">
-        <button className={view === 'brief' || !loaded ? 'on' : ''} onClick={() => { if (loaded) scrollToId('top') }} title="Briefing"><Icon name="home" /></button>
+        <button className={view === 'brief' ? 'on' : ''} onClick={() => scrollToId('top', 'brief')} title="Briefing"><Icon name="home" /></button>
+        <button className={view === 'insights' ? 'on' : ''} onClick={() => scrollToId('top', 'insights')} title="Insights"><Icon name="chart" /></button>
         <button className={view === 'chat' && loaded ? 'on' : ''} disabled={!loaded} onClick={() => setView('chat')} title="Full chat"><Icon name="chat" /></button>
-        <button disabled={!loaded} onClick={() => scrollToId('deadlines')} title="Deadlines"><Icon name="calendar" /></button>
+        <button disabled={!loaded} onClick={() => scrollToId('deadlines', 'insights')} title="Deadlines"><Icon name="calendar" /></button>
         <button onClick={() => fileInput.current?.click()} title="Open a chat export"><Icon name="upload" /></button>
       </nav>
       <nav className="rail bottom">
@@ -281,7 +283,7 @@ export default function App() {
       </label>
       <div className="top-right">
         {a && (
-          <button className="bell" onClick={() => scrollToId('todos')} title="Tasks for you">
+          <button className="bell" onClick={() => scrollToId('todos', 'brief')} title="Tasks for you">
             <Icon name="bell" size={18} />
             {openTasks > 0 && <span className="badge">{openTasks}</span>}
           </button>
@@ -348,7 +350,6 @@ export default function App() {
   const topics = hotTopics(a, people)
   const noisePct = a.unread.length ? fyi.length / a.unread.length : 0
   const doneCount = myTodos.filter(s => done.has(s.msg.id)).length
-  const donePct = myTodos.length ? Math.round((doneCount / myTodos.length) * 100) : 100
   const modelName = MODELS.find(m => m.id === modelId)?.label.split(' (')[0]
 
   const DAY = 86400000
@@ -379,8 +380,57 @@ export default function App() {
     { label: 'Mentions you', value: a.stats.mentions, unit: 'mentions', footL: 'Asked you a question', footR: String(questions), target: 'inbox' },
     { label: 'Due in 24 hours', value: due24.length, unit: 'deadlines', footL: 'Next', footR: nextDue ? fmtTime(nextDue.deadline!) : '—', target: 'deadlines' },
     { label: 'Decisions', value: a.decisions.length, unit: 'made', footL: 'Latest', footR: latestDecision ? fmtTime(latestDecision.msg.ts) : '—', target: 'decisions' },
-    { label: 'Reading saved', value: `~${a.stats.minutesSaved}`, unit: 'min', footL: 'Chatter filtered', footR: `${Math.round(noisePct * 100)}%`, target: 'ai' },
+    { label: 'Reading saved', value: `~${a.stats.minutesSaved}`, unit: 'min', footL: 'Chatter filtered', footR: `${Math.round(noisePct * 100)}%`, target: 'activity' },
   ]
+
+  const aiBody = (
+    <div className="ai-inline">
+      <div className="ai-row">
+        <span className="ai-name"><Icon name="sparkle" size={15} /> AI catch-up <small>{modelName} · on this device</small></span>
+        {(llm === 'done' || llm === 'error') && <button className="btn-link" onClick={runAI}>Regenerate</button>}
+        {llm === 'generating' && <button className="btn-link" onClick={() => (cancel.current.cancelled = true)}>Stop</button>}
+      </div>
+      {llm === 'unsupported' && <p className="prose dim">This browser has no WebGPU, so the on-device AI summary isn't available here. Everything else works offline.</p>}
+      {(llm === 'idle' || llm === 'ready') && !summary && <p className="prose dim">Get a 3-sentence summary written by an AI running in this tab. {cached ? 'Model cached · works offline.' : 'One-time model download, then it works offline.'}</p>}
+      {llm === 'loading' && <div className="progress"><div className="bar"><div style={{ width: `${progress.pct}%` }} /></div><small>{progress.text || 'Starting…'}</small></div>}
+      {llm === 'error' && <p className="prose dim err">{progress.text}</p>}
+      {summary && <Prose text={summary} />}
+      {llm === 'generating' && <span className="cursor">▍</span>}
+      {llm === 'done' && <small className="sub">Written on your device in {(genMs / 1000).toFixed(1)}s</small>}
+      {(llm === 'idle' || llm === 'ready' || llm === 'error') && (
+        <div className="ai-actions">
+          <button className="btn-orange" onClick={runAI}><Icon name="sparkle" size={16} /> Summarize</button>
+          <select className="model" value={modelId} onChange={e => setModelId(e.target.value)} disabled={llm === 'ready'}>
+            {MODELS.map(m => <option key={m.id} value={m.id}>{m.label}</option>)}
+          </select>
+        </div>
+      )}
+    </div>
+  )
+
+  const needsYou = (
+    <div className="todo-panel">
+      {myTodos.length === 0 && <p className="sub">Nothing assigned to you 🎉</p>}
+      {todoGroups.map(({ g, items }) => (
+        <div key={g} className="todo-group">
+          <div className="tg-label">{g}</div>
+          {items.map(s => {
+            const p = prioOf(s)
+            return (
+              <div key={s.msg.id} className={`todo-row ${done.has(s.msg.id) ? 'is-done' : ''}`}>
+                <button className="tick" onClick={() => toggleDone(s.msg.id)} aria-label="Mark done" />
+                <span className="t-text" title={s.msg.text} onClick={() => jump(s.msg.id)}>
+                  <span className="t-title">{cleanTitle(s.msg.text, people)}</span>
+                  <small>{s.msg.author}{s.deadline ? ` · due ${fmtWhen(s.deadline, a.now)}` : ''}</small>
+                </span>
+                <span className={`prio ${p.toLowerCase()}`}>{p}</span>
+              </div>
+            )
+          })}
+        </div>
+      ))}
+    </div>
+  )
 
   const statusOf = (s: Scored) => {
     if (done.has(s.msg.id)) return { cls: 'done', label: 'done' }
@@ -422,6 +472,61 @@ export default function App() {
                 })}
               </div>
             </section>
+          ) : view === 'brief' ? (
+            <div className="bento brief">
+              <section className="tile span-8 catchup">
+                <div className="eyebrow">
+                  <span className="pill-btn sm">{chatName}</span>
+                  <span>Away {fmtDuration(a.now.getTime() - (lastRead?.ts.getTime() ?? a.now.getTime()))}{lastRead ? ` · last read ${fmtTime(lastRead.ts)}` : ''}</span>
+                </div>
+                <h1>You missed {a.stats.unread} messages.<br /><span>{openTasks ? `${openTasks} need${openTasks === 1 ? 's' : ''} you.` : 'Nothing needs you.'}</span></h1>
+                <div className="facts">
+                  <span><b>{due24.length}</b> due in 24h</span>
+                  <span><b>{a.decisions.length}</b> decisions</span>
+                  <span><b>{Math.round(noisePct * 100)}%</b> was chatter</span>
+                </div>
+                {aiBody}
+              </section>
+
+              <section className="tile span-4 orange-tile next-up">
+                <div className="silhouette">?</div>
+                <span className="nu-label">Next up</span>
+                {nextDue ? (
+                  <>
+                    <div className="nu-when">{fmtWhen(nextDue.deadline!, a.now).split(' · ')[1]}</div>
+                    <div className="nu-title">{cleanTitle(nextDue.msg.text, people)}</div>
+                    <div className="nu-meta">{nextDue.msg.author} · due {fmtTime(nextDue.deadline!)}</div>
+                    <button className="nu-btn" onClick={() => jump(nextDue.msg.id)}>Open message <Icon name="arrow" size={16} /></button>
+                  </>
+                ) : <div className="nu-title">Nothing due soon 🎉</div>}
+              </section>
+
+              <section className="tile span-8" id="todos">
+                <div className="tile-head">
+                  <div><h3>Needs you</h3><small className="sub">Someone named you or asked you directly</small></div>
+                  <span className="pill-btn sm">{doneCount}/{myTodos.length} done</span>
+                </div>
+                {needsYou}
+              </section>
+
+              <section className="tile span-4">
+                <div className="tile-head"><h3>Decided while you were away</h3></div>
+                <div className="mini-list">
+                  {a.decisions.length === 0 && <p className="sub">No decisions spotted.</p>}
+                  {a.decisions.slice(-4).reverse().map(s => (
+                    <button key={s.msg.id} className="ml-row" onClick={() => jump(s.msg.id)}>
+                      <Avatar name={s.msg.author} size={24} />
+                      <span>{cleanTitle(s.msg.text, people)}</span>
+                    </button>
+                  ))}
+                </div>
+              </section>
+
+              <button className="see-more span-12" onClick={() => scrollToId('top', 'insights')}>
+                <span><b>See all insights</b><small>Deadline calendar · chat activity · hot topics · full inbox</small></span>
+                <span className="circ-btn"><Icon name="arrow" size={18} /></span>
+              </button>
+            </div>
           ) : (
             <div className="bento">
               {/* KPI strip */}
@@ -495,9 +600,8 @@ export default function App() {
                 </div>
               </section>
 
-              {/* Inbox + AI */}
-              <div className="span-4 col-stack">
-                <section className="tile" id="inbox">
+              {/* Inbox */}
+                <section className="tile span-8" id="inbox">
                   <div className="tile-head"><h3>Priority inbox</h3><button className="more" onClick={() => setShowFyi(!showFyi)} title="Show chatter">•••</button></div>
                   <div className="well">
                     <div className="well-head"><span>{inbox.length} need attention</span><button className="pill-btn sm" onClick={() => setShowFyi(!showFyi)}>{showFyi ? 'Less' : `+${fyi.length} FYI`}</button></div>
@@ -513,31 +617,6 @@ export default function App() {
                   </div>
                 </section>
 
-                <section className="tile ai-tile" id="ai">
-                  <div className="tile-head">
-                    <div><h3><Icon name="sparkle" size={16} /> AI catch-up</h3><small className="sub">{modelName} · running in this tab</small></div>
-                    {(llm === 'done' || llm === 'error') && <button className="more" onClick={runAI} title="Regenerate"><Icon name="edit" size={16} /></button>}
-                  </div>
-                  {llm === 'unsupported' && <p className="prose dim">No WebGPU in this browser, so the on-device LLM can't run here. Everything else works offline. Use desktop Chrome or Edge for the AI summary.</p>}
-                  {(llm === 'idle' || llm === 'ready') && !summary && <p className="prose dim">{cached ? 'Model cached on this device · works offline. ' : 'First run downloads the model once; after that it works offline. '}Your messages never leave this tab.</p>}
-                  {llm === 'loading' && (
-                    <div className="progress"><div className="bar"><div style={{ width: `${progress.pct}%` }} /></div><small>{progress.text || 'Starting…'}</small></div>
-                  )}
-                  {llm === 'error' && <p className="prose dim err">{progress.text}</p>}
-                  {summary && <Prose text={summary} />}
-                  {llm === 'generating' && <span className="cursor">▍</span>}
-                  {llm === 'done' && <small className="sub">Generated on your device in {(genMs / 1000).toFixed(1)}s</small>}
-                  {(llm === 'idle' || llm === 'ready' || llm === 'error') && (
-                    <div className="ai-actions">
-                      <select className="model" value={modelId} onChange={e => setModelId(e.target.value)} disabled={llm === 'ready'}>
-                        {MODELS.map(m => <option key={m.id} value={m.id}>{m.label}</option>)}
-                      </select>
-                      <button className="btn-orange" onClick={runAI}>Summarize</button>
-                    </div>
-                  )}
-                  {llm === 'generating' && <button className="pill-btn" onClick={() => (cancel.current.cancelled = true)}>Stop</button>}
-                </section>
-              </div>
 
               {/* Unread + noise gauge */}
               <div className="span-4 col-stack">
@@ -554,39 +633,10 @@ export default function App() {
                     <div className="gauge-label"><b>{Math.round(noisePct * 100)}%</b><span>was just chatter</span></div>
                   </div>
                   <p className="sub center">~{a.stats.minutesSaved} min of reading saved</p>
-                  <button className="btn-orange wide" onClick={() => scrollToId('todos')}>Show what matters</button>
+                  <button className="btn-orange wide" onClick={() => scrollToId('todos', 'brief')}>Show what matters</button>
                 </section>
               </div>
 
-              {/* To-dos */}
-              <section className="tile span-4 todo-tile" id="todos">
-                <div className="tile-head"><div><h3>Your to-dos</h3><small className="sub">Someone named you or asked you directly</small></div><span className="more">•••</span></div>
-                <div className="goal-line"><span>Tasks for you</span><span className="count-chip">{myTodos.length} <Icon name="arrow" size={12} /></span></div>
-                <div className="big-pct"><b>{donePct}</b><span>%</span><small>done</small></div>
-                <div className="mini-dots">{myTodos.map(s => <span key={s.msg.id} className={statusOf(s).cls}><i /><i /><i /><i /><i /><i /></span>)}</div>
-                <div className="todo-panel">
-                  {myTodos.length === 0 && <p className="sub">Nothing assigned to you 🎉</p>}
-                  {todoGroups.map(({ g, items }) => (
-                    <div key={g} className="todo-group">
-                      <div className="tg-label">{g}</div>
-                      {items.map(s => {
-                        const p = prioOf(s)
-                        return (
-                          <div key={s.msg.id} className={`todo-row ${done.has(s.msg.id) ? 'is-done' : ''}`}>
-                            <button className="tick" onClick={() => toggleDone(s.msg.id)} aria-label="Mark done" />
-                            <span className="t-text" title={s.msg.text} onClick={() => jump(s.msg.id)}>
-                              <span className="t-title">{cleanTitle(s.msg.text, people)}</span>
-                              <small>{s.msg.author}{s.deadline ? ` · due ${fmtTime(s.deadline)}` : ''}</small>
-                            </span>
-                            <span className={`prio ${p.toLowerCase()}`}>{p}</span>
-                          </div>
-                        )
-                      })}
-                    </div>
-                  ))}
-                  <div className="kpi-foot"><span>Others' open tasks</span><b>{otherTodos.length}</b></div>
-                </div>
-              </section>
 
               {/* Activity chart */}
               <section className="tile span-12" id="activity">
