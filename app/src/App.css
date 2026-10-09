@@ -366,3 +366,60 @@ mark { background: rgba(255, 122, 47, .22); color: var(--orange-2); border-radiu
   .bubble { max-width: 92%; }
   .silhouette { font-size: 280px; }
 }
+
+/* =========================================================
+   Demo intro overlay, demo pill, drop-anywhere
+   ========================================================= */
+.demo-pill {
+  height: 34px; padding: 0 14px; border-radius: 999px; border: 1px dashed rgba(255, 154, 82, .7);
+  background: rgba(255, 122, 47, .1); color: var(--orange-2); font-size: 12.5px; font-weight: 600; white-space: nowrap;
+}
+.demo-pill:hover { background: rgba(255, 122, 47, .2); }
+
+.intro {
+  position: fixed; inset: 0; z-index: 100; display: grid; place-items: center; padding: 24px;
+  background: rgba(10, 6, 5, .62); backdrop-filter: blur(14px) saturate(1.1); -webkit-backdrop-filter: blur(14px) saturate(1.1);
+  animation: fade-in .35s ease-out;
+}
+.intro-card {
+  position: relative; overflow: hidden; width: min(640px, 100%); padding: 36px 38px 28px; border-radius: 28px;
+  background: linear-gradient(180deg, rgba(38, 28, 24, .97), rgba(18, 13, 11, .98));
+  border: 1px solid rgba(255, 255, 255, .08); box-shadow: 0 40px 120px -20px rgba(0, 0, 0, .9), 0 0 0 1px rgba(255, 122, 47, .08);
+  animation: pop-in .45s cubic-bezier(.2, .9, .3, 1.2);
+}
+.intro-glow {
+  position: absolute; right: -120px; top: -140px; width: 360px; height: 360px; border-radius: 50%; pointer-events: none;
+  background: radial-gradient(circle, rgba(255, 122, 47, .55), rgba(255, 122, 47, 0) 65%);
+}
+.intro-badge {
+  position: relative; display: inline-flex; align-items: center; gap: 10px; height: 38px; padding: 0 16px 0 7px; border-radius: 999px;
+  background: rgba(255, 255, 255, .05); border: 1px solid var(--line); font-size: 13px; font-weight: 600; letter-spacing: .04em; text-transform: uppercase;
+}
+.intro-card h2 { position: relative; margin: 20px 0 12px; font-size: clamp(32px, 4.4vw, 46px); font-weight: 500; letter-spacing: -0.04em; line-height: 1.02; }
+.intro-card h2 span { background: linear-gradient(90deg, var(--orange-2), var(--amber)); -webkit-background-clip: text; background-clip: text; color: transparent; }
+.intro-card p { position: relative; margin: 0 0 20px; color: #b5a99f; font-size: 15.5px; line-height: 1.6; }
+.intro-card p b { color: #fff; font-weight: 600; }
+.intro-facts { display: flex; gap: 10px; flex-wrap: wrap; margin-bottom: 24px; }
+.intro-facts span { padding: 8px 14px; border-radius: 12px; background: rgba(255, 255, 255, .05); border: 1px solid var(--line); font-size: 13px; color: var(--muted); }
+.intro-facts b { color: #fff; font-size: 16px; margin-right: 4px; }
+.intro-actions { display: flex; gap: 12px; flex-wrap: wrap; align-items: center; }
+.btn-link { background: none; border: 0; padding: 0 4px; color: var(--muted); font-size: 14px; text-decoration: underline; text-underline-offset: 3px; }
+.btn-link:hover { color: #fff; }
+.intro-paste { margin-top: 16px; }
+.intro-tip { display: block; margin-top: 22px; padding-top: 16px; border-top: 1px solid var(--line); color: var(--muted); font-size: 12.5px; line-height: 1.5; }
+.intro-tip b { color: var(--orange-2); }
+@keyframes fade-in { from { opacity: 0; } }
+@keyframes pop-in { from { opacity: 0; transform: translateY(16px) scale(.97); } }
+
+.drop-overlay {
+  position: fixed; inset: 14px; z-index: 90; display: grid; place-content: center; justify-items: center; gap: 10px;
+  border-radius: 28px; border: 2px dashed var(--orange); background: rgba(20, 12, 9, .82); backdrop-filter: blur(8px);
+  color: #fff; font-size: 20px; pointer-events: none; animation: fade-in .2s ease-out;
+}
+.drop-overlay svg { color: var(--orange); }
+.drop-overlay small { color: var(--muted); font-size: 13px; }
+
+@media (max-width: 760px) {
+  .intro-card { padding: 28px 22px 22px; }
+  .demo-pill { order: 2; }
+}

@@ -112,10 +112,17 @@ function highlight(text: string, me: string, query = '') {
 }
 
 export default function App() {
-  const [raw, setRaw] = useState<string | null>(null)
-  const [chatName, setChatName] = useState('')
-  const [me, setMe] = useState('')
-  const [sinceIdx, setSinceIdx] = useState(0)
+  // The app always opens on the demo chat so it's functional from the first second
+  const [raw, setRaw] = useState<string>(() => buildDemoChat())
+  const [chatName, setChatName] = useState(DEMO_NAME)
+  const [me, setMe] = useState(DEMO_ME)
+  const [sinceIdx, setSinceIdx] = useState(DEMO_LAST_READ)
+  const [isDemo, setIsDemo] = useState(true)
+  const [showIntro, setShowIntro] = useState(() => {
+    if (new URLSearchParams(location.search).has('shared')) return false
+    try { return !localStorage.getItem('wdim-intro-seen') } catch { return true }
+  })
+  const [showPaste, setShowPaste] = useState(false)
   const [view, setView] = useState<View>('brief')
   const [query, setQuery] = useState('')
   const [paste, setPaste] = useState('')
@@ -157,12 +164,14 @@ export default function App() {
     if (llm === 'done') setLlm('ready')
   }
 
-  function open(text: string, name: string, meGuess?: string, lastRead?: number) {
+  function open(text: string, name: string, meGuess?: string, lastRead?: number, demo = false) {
     const parsed = parseChat(text)
     if (!parsed.length) { alert("Couldn't find any messages. Paste a WhatsApp export or lines like \"Name: message\"."); return }
     const ppl = participants(parsed)
     setRaw(text)
     setChatName(name)
+    setIsDemo(demo)
+    if (!demo) closeIntro()
     let remembered: string | null = null
     try { remembered = localStorage.getItem('wdim-me') } catch { /* storage unavailable */ }
     setMe(meGuess && ppl.includes(meGuess) ? meGuess : remembered && ppl.includes(remembered) ? remembered : ppl[0])
@@ -213,14 +222,25 @@ export default function App() {
   }
 
   const toggleDone = (id: number) => setDone(d => { const n = new Set(d); if (n.has(id)) n.delete(id); else n.add(id); return n })
-  const tryDemo = () => open(buildDemoChat(), DEMO_NAME, DEMO_ME, DEMO_LAST_READ)
+  const loadDemo = () => open(buildDemoChat(), DEMO_NAME, DEMO_ME, DEMO_LAST_READ, true)
+  function closeIntro() {
+    setShowIntro(false)
+    setShowPaste(false)
+    try { localStorage.setItem('wdim-intro-seen', '1') } catch { /* storage unavailable */ }
+  }
+  useEffect(() => {
+    if (!showIntro) return
+    const onKey = (e: KeyboardEvent) => { if (e.key === 'Escape') closeIntro() }
+    window.addEventListener('keydown', onKey)
+    return () => window.removeEventListener('keydown', onKey)
+  }, [showIntro])
   const loaded = !!a
   const openTasks = a ? a.actions.filter(s => s.owner === me && !done.has(s.msg.id)).length : 0
 
   // ---------------- shell ----------------
   const sidebar = (
     <aside className="sidebar">
-      <button className="logo" onClick={() => setRaw(null)} title="What Did I Miss?"><img src="./icons/icon-192.png" alt="" /></button>
+      <button className="logo" onClick={() => setShowIntro(true)} title="About this app"><img src="./icons/icon-192.png" alt="" /></button>
       <nav className="rail">
         <button className={view === 'brief' || !loaded ? 'on' : ''} onClick={() => { if (loaded) scrollToId('top') }} title="Briefing"><Icon name="home" /></button>
         <button className={view === 'chat' && loaded ? 'on' : ''} disabled={!loaded} onClick={() => setView('chat')} title="Full chat"><Icon name="chat" /></button>
@@ -230,7 +250,7 @@ export default function App() {
       <nav className="rail bottom">
         {install && <button onClick={install} title="Install app"><Icon name="download" /></button>}
         <button className={online ? 'safe' : 'offline'} title={online ? 'Processed on this device · 0 bytes sent' : 'Offline · still working'}><Icon name="shield" /></button>
-        {loaded && <button onClick={() => setRaw(null)} title="Close chat"><Icon name="exit" /></button>}
+        {!isDemo && <button onClick={loadDemo} title="Back to the demo chat"><Icon name="exit" /></button>}
       </nav>
       <input ref={fileInput} type="file" accept=".txt,.zip,text/plain,application/zip" hidden onChange={e => { if (e.target.files?.[0]) onFile(e.target.files[0]); e.target.value = '' }} />
     </aside>
@@ -247,6 +267,7 @@ export default function App() {
         <span className="sp-sep" />
         <span className="sp-muted">0 bytes sent</span>
       </div>
+      {isDemo && <button className="demo-pill" onClick={() => setShowIntro(true)} title="You're viewing sample data. Click to load your own chat.">Demo chat · use yours</button>}
       <label className="search">
         <Icon name="search" size={18} />
         <input
@@ -276,79 +297,47 @@ export default function App() {
     </header>
   )
 
-  const toast = sharedNotice && <div className="toast"><span className="dot" />Received from WhatsApp · processed on this device only</div>
-
-  // ---------------- Landing ----------------
-  if (!a) {
-    return (
-      <div className="backdrop">
-        <div className="shell">
-          {sidebar}
-          <main className="main">
-            {topbar}
-            <div className="bento">
-              <section className="tile span-8 hero-tile">
-                <div className="cal-head"><span className="pill-btn">Local-first AI</span><h3>The Unread Problem</h3><span className="pill-btn">WebGPU</span></div>
-                <h1>What did <span>I miss?</span></h1>
-                <p className="lede">Drop in an overwhelming group chat. Get your mentions, deadlines, decisions and to-dos ranked by urgency, plus an AI summary that runs <b>entirely on your device</b>.</p>
-                <div className="hero-actions">
-                  <button className="btn-orange" onClick={tryDemo}>Try the demo chat <Icon name="arrow" size={18} /></button>
-                  <button className="btn-ghost" onClick={() => fileInput.current?.click()}><Icon name="upload" size={18} /> Open a chat export</button>
-                </div>
-                <div className="hero-stats">
-                  <div><b>200+</b><span>unread messages</span></div>
-                  <div><b>10s</b><span>to catch up</span></div>
-                  <div><b>0</b><span>bytes uploaded</span></div>
-                </div>
-              </section>
-
-              <section className="tile span-4 orange-tile">
-                <div className="silhouette">?</div>
-                <h2>Private <span>by design</span></h2>
-                <div className="orbit">
-                  <span className="o-pill" style={{ marginLeft: '8%' }}>On-device AI<i className="o-dot r" /></span>
-                  <span className="o-pill" style={{ marginLeft: '30%' }}><i className="o-dot l" />Works offline</span>
-                  <span className="o-pill" style={{ marginLeft: '14%' }}>No servers<i className="o-dot r" /></span>
-                </div>
-              </section>
-
-              <section
-                className={`tile span-4 drop-tile ${dragging ? 'over' : ''}`}
-                onDragOver={e => { e.preventDefault(); setDragging(true) }}
-                onDragLeave={() => setDragging(false)}
-                onDrop={e => { e.preventDefault(); setDragging(false); const f = e.dataTransfer.files[0]; if (f) onFile(f) }}
-              >
-                <div className="tile-head"><h3>Drop a chat export</h3><span className="more">•••</span></div>
-                <button className="dropzone" onClick={() => fileInput.current?.click()}>
-                  <Icon name="upload" size={28} />
-                  <b>Drop .txt or .zip here</b>
-                  <small>or click to browse</small>
-                </button>
-              </section>
-
-              <section className="tile span-4 paste-tile">
-                <div className="tile-head"><h3>Paste any chat</h3><span className="more">•••</span></div>
-                <textarea className="paste" value={paste} onChange={e => setPaste(e.target.value)} placeholder={'Ananya: @Shashwat can you send the deck by 5pm?\nRohan: venue is final, main auditorium'} />
-                <button className="btn-orange wide" disabled={!paste.trim()} onClick={() => open(paste, 'Pasted chat')}>Analyze</button>
-              </section>
-
-              <section className="tile span-4">
-                <div className="tile-head"><div><h3>Connect WhatsApp</h3><small className="sub">Official export and share. No scraping, no servers.</small></div><span className="more">•••</span></div>
-                <div className="rows">
-                  <div className="row-item"><span className="tag">Android</span><span className="r-text">Export chat → share to <b>Missed?</b></span><span className="status done">2 taps</span></div>
-                  <div className="row-item"><span className="tag">iPhone</span><span className="r-text">Export → Save to Files → drop .zip</span><span className="status prog">zip</span></div>
-                  <div className="row-item"><span className="tag">Desktop</span><span className="r-text">Slack, Discord, Teams → paste</span><span className="status prog">paste</span></div>
-                </div>
-              </section>
-            </div>
-          </main>
+  const intro = showIntro && (
+    <div className="intro" role="dialog" aria-modal="true" aria-labelledby="intro-title" onClick={closeIntro}>
+      <div className="intro-card" onClick={e => e.stopPropagation()}>
+        <div className="intro-glow" />
+        <div className="intro-badge"><span className="sp-dot" />Demo chat</div>
+        <h2 id="intro-title">You're looking at a <span>demo chat</span></h2>
+        <p>
+          This is a sample WhatsApp group, <b>{DEMO_NAME}</b>, with {msgs.length} messages and a few urgent asks hidden in the chatter.
+          Explore it freely. Everything is processed <b>on your device</b>, and nothing is uploaded.
+        </p>
+        <div className="intro-facts">
+          <span><b>{a?.stats.unread ?? 0}</b> unread</span>
+          <span><b>{a?.stats.urgent ?? 0}</b> urgent</span>
+          <span><b>0</b> bytes sent</span>
         </div>
-        {toast}
+        <div className="intro-actions">
+          <button className="btn-orange" onClick={() => { if (!isDemo) loadDemo(); closeIntro() }} autoFocus>Explore the demo <Icon name="arrow" size={18} /></button>
+          <button className="btn-ghost" onClick={() => fileInput.current?.click()}><Icon name="upload" size={18} /> Open my chat export</button>
+          <button className="btn-link" onClick={() => setShowPaste(!showPaste)}>{showPaste ? 'Hide paste box' : 'Paste a chat instead'}</button>
+        </div>
+        {showPaste && (
+          <div className="intro-paste">
+            <textarea className="paste" value={paste} onChange={e => setPaste(e.target.value)} placeholder={'Ananya: @Shashwat can you send the deck by 5pm?\nRohan: venue is final, main auditorium'} autoFocus />
+            <button className="btn-orange wide" disabled={!paste.trim()} onClick={() => open(paste, 'Pasted chat')}>Analyze</button>
+          </div>
+        )}
+        <small className="intro-tip">Tip: drop a WhatsApp export (.txt or .zip) anywhere on the page. On Android, share it straight to <b>Missed?</b></small>
       </div>
-    )
+    </div>
+  )
+
+  const dropHandlers = {
+    onDragOver: (e: React.DragEvent) => { if (e.dataTransfer.types.includes('Files')) { e.preventDefault(); setDragging(true) } },
+    onDragLeave: (e: React.DragEvent) => { if (e.currentTarget === e.target) setDragging(false) },
+    onDrop: (e: React.DragEvent) => { e.preventDefault(); setDragging(false); const f = e.dataTransfer.files[0]; if (f) onFile(f) },
   }
 
+  const toast = sharedNotice && <div className="toast"><span className="dot" />Received from WhatsApp · processed on this device only</div>
+
   // ---------------- Dashboard ----------------
+  if (!a) return null
   const myTodos = a.actions.filter(s => s.owner === me)
   const otherTodos = a.actions.filter(s => s.owner !== me)
   const inbox = a.scored.filter(s => s.msg.author !== me && s.priority !== 'fyi').sort((x, y) => y.score - x.score)
@@ -369,7 +358,7 @@ export default function App() {
   }
 
   return (
-    <div className="backdrop">
+    <div className={`backdrop ${dragging ? 'dropping' : ''}`} {...dropHandlers}>
       <div className="shell">
         {sidebar}
         <main className="main" id="top">
@@ -576,6 +565,8 @@ export default function App() {
         </main>
       </div>
       {toast}
+      {intro}
+      {dragging && <div className="drop-overlay"><Icon name="upload" size={40} /><b>Drop your chat export</b><small>.txt or .zip, processed on this device</small></div>}
     </div>
   )
 }
