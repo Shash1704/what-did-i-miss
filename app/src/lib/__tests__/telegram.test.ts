@@ -76,3 +76,15 @@ describe('readChatFile source detection', () => {
     expect([wa.source, wa.name]).toEqual(['whatsapp', 'Fest'])
   })
 })
+
+describe('Telegram bot token paste', () => {
+  it('extracts the token from whatever was pasted', async () => {
+    const { extractToken } = await import('../telegramBot')
+    const t = '1234567890:AAHfakeFakeFakeFakeFakeFakeFakeFak'
+    expect(extractToken(t)).toBe(t)
+    expect(extractToken(`bot${t}`)).toBe(t)
+    expect(extractToken(`Use this token to access the HTTP API:\n${t}\nKeep your token secure`)).toBe(t)
+    expect(extractToken(` "${t}"​ `)).toBe(t)
+    expect(extractToken('@my_fest_bot')).toBeNull()
+  })
+})

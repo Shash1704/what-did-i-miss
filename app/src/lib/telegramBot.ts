@@ -27,17 +27,33 @@ export function saveStore(s: TgStore | null) {
   try { if (s) localStorage.setItem(KEY, JSON.stringify(s)); else localStorage.removeItem(KEY) } catch { /* storage full or unavailable */ }
 }
 
+/**
+ * Pull the bot token out of whatever was pasted: BotFather's whole message, a "bot" prefix,
+ * quotes, spaces or invisible characters. A token looks like 123456789:AAH… (digits, colon, 35 chars).
+ */
+export function extractToken(pasted: string): string | null {
+  const m = pasted.replace(/[\u200b-\u200f\u2060\ufeff]/g, '').match(/(\d{5,15}):([A-Za-z0-9_-]{30,})/)
+  return m ? `${m[1]}:${m[2]}` : null
+}
+
 async function call<T>(token: string, method: string, params: Record<string, string> = {}, signal?: AbortSignal): Promise<T> {
   // Simple GET (no custom headers) so the browser needs no CORS preflight
   const qs = new URLSearchParams(params).toString()
-  const res = await fetch(`https://api.telegram.org/bot${encodeURIComponent(token)}/${method}${qs ? `?${qs}` : ''}`, { signal })
+  const res = await fetch(`https://api.telegram.org/bot${token}/${method}${qs ? `?${qs}` : ''}`, { signal })
   const body = await res.json().catch(() => ({ ok: false, description: `HTTP ${res.status}` }))
-  if (!body.ok) throw new Error(body.description || 'Telegram request failed')
+  if (!body.ok) {
+    const code = body.error_code ?? res.status
+    if (code === 401 || code === 404) throw new Error('Telegram rejected this token. Copy it again from @BotFather (it looks like 123456789:AAH…), or send /token to BotFather to get a fresh one.')
+    if (code === 409) throw new Error('Another app is already reading this bot\'s messages (a webhook or another open tab). Close other tabs, or create a fresh bot.')
+    throw new Error(body.description || 'Telegram request failed')
+  }
   return body.result as T
 }
 
 /** Validate the token and make sure updates can be pulled (no webhook set on the bot). */
-export async function connectBot(token: string): Promise<TgStore> {
+export async function connectBot(pasted: string): Promise<TgStore> {
+  const token = extractToken(pasted)
+  if (!token) throw new Error("That doesn't look like a bot token. In @BotFather's message, copy the line that looks like 123456789:AAH… (numbers, a colon, then about 35 letters).")
   const me = await call<{ username: string }>(token, 'getMe')
   const hook = await call<{ url: string }>(token, 'getWebhookInfo')
   if (hook.url) throw new Error('This bot has a webhook set, so its messages go elsewhere. Use a fresh bot from @BotFather.')

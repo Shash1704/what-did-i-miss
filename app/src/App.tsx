@@ -178,7 +178,7 @@ export default function App() {
       saveStore(store)
       setTgChats(listChats(store))
       setTgDraft('')
-      setTgToken(token)
+      setTgToken(store.token)
     } catch (err) {
       setTgStatus('error'); setTgError((err as Error).message)
     }
